@@ -35,6 +35,16 @@ type FeedbackTrendRow = {
   manualResolved: number;
 };
 
+type SourceQualityRow = {
+  source: string;
+  total: number;
+  approved: number;
+  rejected: number;
+  archived: number;
+  inReview: number;
+  qualityScore: number;
+};
+
 function humanizeManualTag(tag: ManualResolutionTag | string) {
   if (tag === "FIXED_DATA") return "补数据后解决";
   if (tag === "FIXED_RULE") return "修规则后解决";
@@ -93,6 +103,41 @@ function buildTrend(days = 7) {
   });
 }
 
+function summarizeSourceQuality(items: Array<{ source: string; status: string }>) {
+  const groups = new Map<string, SourceQualityRow>();
+
+  for (const item of items) {
+    const key = item.source.trim() || "未记录来源";
+    const current =
+      groups.get(key) ??
+      {
+        source: key,
+        total: 0,
+        approved: 0,
+        rejected: 0,
+        archived: 0,
+        inReview: 0,
+        qualityScore: 0,
+      };
+
+    current.total += 1;
+    if (item.status === "APPROVED") current.approved += 1;
+    if (item.status === "REJECTED") current.rejected += 1;
+    if (item.status === "ARCHIVED") current.archived += 1;
+    if (item.status === "TO_REVIEW") current.inReview += 1;
+
+    groups.set(key, current);
+  }
+
+  return [...groups.values()].map((item) => {
+    const qualityScore = item.approved * 4 + item.inReview * 2 - item.rejected * 3 - item.archived;
+    return {
+      ...item,
+      qualityScore,
+    };
+  });
+}
+
 export const dynamic = "force-dynamic";
 
 export default async function OpsFeedbackPage() {
@@ -100,7 +145,7 @@ export default async function OpsFeedbackPage() {
     async () => {
       const since = subDays(new Date(), 7);
 
-      const [reviewSummary, rejectedReviews, recentReviews, resolvedManualExceptions] = await Promise.all([
+      const [reviewSummary, rejectedReviews, recentReviews, resolvedManualExceptions, sourceItems] = await Promise.all([
         db.reviewAction.groupBy({
           by: ["decision"],
           _count: { _all: true },
@@ -134,6 +179,12 @@ export default async function OpsFeedbackPage() {
           take: 120,
           include: {
             resolvedBy: { select: { name: true } },
+          },
+        }),
+        db.contentItem.findMany({
+          select: {
+            source: true,
+            status: true,
           },
         }),
       ]);
@@ -241,6 +292,8 @@ export default async function OpsFeedbackPage() {
         row.manualResolved += 1;
       }
 
+      const sourceQuality = summarizeSourceQuality(sourceItems);
+
       return {
         totalReviewCount,
         approvedCount,
@@ -264,6 +317,12 @@ export default async function OpsFeedbackPage() {
           .sort((a, b) => b.count - a.count),
         recentTaggedManuals: recentTaggedManuals.slice(0, 6),
         trend,
+        topSources: [...sourceQuality]
+          .sort((a, b) => b.qualityScore - a.qualityScore || b.total - a.total)
+          .slice(0, 5),
+        lowSources: [...sourceQuality]
+          .sort((a, b) => a.qualityScore - b.qualityScore || b.rejected - a.rejected)
+          .slice(0, 5),
       };
     },
     {
@@ -297,6 +356,8 @@ export default async function OpsFeedbackPage() {
         resolverName: string | null;
       }[],
       trend: buildTrend(7) as FeedbackTrendRow[],
+      topSources: [] as SourceQualityRow[],
+      lowSources: [] as SourceQualityRow[],
     },
   );
 
@@ -443,6 +504,62 @@ export default async function OpsFeedbackPage() {
                   </div>
                   <p className="mt-2 text-sm text-slate-700">{item.message}</p>
                   <p className="mt-1 text-xs text-slate-500">处理人：{item.resolverName ?? "未记录"}</p>
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-2">
+        <Card>
+          <h2 className="text-lg font-semibold text-slate-900">高质量来源排行</h2>
+          <p className="mt-1 text-sm text-slate-500">先用通过、待审核和归档/驳回情况做轻量评分，帮助后续调整来源优先级。</p>
+
+          <div className="mt-5 space-y-3">
+            {data.topSources.length === 0 ? (
+              <p className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-500">当前还没有足够的来源质量样本。</p>
+            ) : (
+              data.topSources.map((item) => (
+                <div key={item.source} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="font-medium text-slate-900">{item.source}</p>
+                    <Badge tone="success">评分 {item.qualityScore}</Badge>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
+                    <span>总量 {item.total}</span>
+                    <span>通过 {item.approved}</span>
+                    <span>待审核 {item.inReview}</span>
+                    <span>驳回 {item.rejected}</span>
+                    <span>归档 {item.archived}</span>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
+
+        <Card>
+          <h2 className="text-lg font-semibold text-slate-900">低质量来源观察</h2>
+          <p className="mt-1 text-sm text-slate-500">这部分优先帮助管理员决定哪些来源要降权、限流，或转成只入库不发布。</p>
+
+          <div className="mt-5 space-y-3">
+            {data.lowSources.length === 0 ? (
+              <p className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-500">当前还没有足够的低质量来源样本。</p>
+            ) : (
+              data.lowSources.map((item) => (
+                <div key={item.source} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="font-medium text-slate-900">{item.source}</p>
+                    <Badge tone={item.qualityScore <= 0 ? "danger" : "warning"}>评分 {item.qualityScore}</Badge>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
+                    <span>总量 {item.total}</span>
+                    <span>通过 {item.approved}</span>
+                    <span>待审核 {item.inReview}</span>
+                    <span>驳回 {item.rejected}</span>
+                    <span>归档 {item.archived}</span>
+                  </div>
                 </div>
               ))
             )}
