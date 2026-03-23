@@ -1,0 +1,353 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  EDITOR
+  REVIEWER
+  VISITOR
+}
+
+enum WorkflowStatus {
+  TO_FETCH
+  FETCHED
+  TO_EXTRACT
+  TO_GENERATE_DRAFT
+  TO_EDIT
+  TO_REVIEW
+  APPROVED
+  REJECTED
+  ARCHIVED
+}
+
+enum DraftStatus {
+  DRAFTING
+  EDITING
+  IN_REVIEW
+  APPROVED
+  REJECTED
+  ARCHIVED
+}
+
+enum ReviewDecision {
+  APPROVED
+  REJECTED
+  NEEDS_REVISION
+}
+
+enum PromptType {
+  STRUCTURED_EXTRACTION
+  DRAFT_GENERATION
+  SUMMARY
+  SEO
+  GEO
+}
+
+enum TaskType {
+  SEARCH
+  CRAWL
+  EXTRACT
+  AI_STRUCTURED
+  AI_DRAFT
+  DEDUP
+  RISK_SCAN
+  KNOWLEDGE_SAVE
+  REVIEW_NOTIFY
+  ARCHIVE
+}
+
+enum TaskStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  FAILED
+  CANCELED
+  RETRYING
+  PAUSED
+}
+
+enum TaskTriggerType {
+  SCHEDULED
+  MANUAL
+  CHAIN
+  RETRY
+  SYSTEM
+}
+
+enum ExceptionType {
+  CRAWL_FAILED
+  EXTRACTION_FAILED
+  AI_STRUCTURED_FAILED
+  AI_DRAFT_FAILED
+  DUPLICATE_CONFLICT
+  SOURCE_INVALID
+  RISK_CONTENT
+  MISSING_REQUIRED_FIELDS
+  TEMPLATE_OUTPUT_INVALID
+  RULE_CONFLICT
+}
+
+enum ExceptionSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum ExceptionStatus {
+  OPEN
+  IGNORED
+  RETRYING
+  RESOLVED
+  MANUAL_PROCESSING
+}
+
+enum RuleType {
+  SOURCE
+  CONTENT
+  STYLE
+  RISK
+  AUTOMATION
+  TERM_MAPPING
+}
+
+model User {
+  id             String         @id @default(cuid())
+  name           String
+  email          String         @unique
+  passwordHash   String
+  role           UserRole
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  ownedContents  ContentItem[]  @relation("ContentOwner")
+  editedDrafts   Draft[]        @relation("DraftEditor")
+  reviewedDrafts Draft[]        @relation("DraftReviewer")
+  reviewActions  ReviewAction[]
+  logs           OperationLog[]
+  createdTasks   Task[]         @relation("TaskCreator")
+  taskLogs       TaskLog[]
+  createdRules   RuleDefinition[] @relation("RuleCreator")
+  exceptionsResolved ExceptionEvent[] @relation("ExceptionResolver")
+}
+
+model Keyword {
+  id          String        @id @default(cuid())
+  term        String        @unique
+  category    String?
+  description String?
+  isActive    Boolean       @default(true)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  contentHits ContentItem[]
+}
+
+model Site {
+  id             String        @id @default(cuid())
+  name           String
+  baseUrl        String        @unique
+  description    String?
+  isActive       Boolean       @default(true)
+  crawlFrequency String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  contents       ContentItem[]
+}
+
+model ContentItem {
+  id                    String              @id @default(cuid())
+  title                 String
+  source                String
+  originalUrl           String              @unique
+  publishedAt           DateTime?
+  fetchedAt             DateTime?
+  contentTypeSuggestion String?
+  status                WorkflowStatus      @default(TO_FETCH)
+  rawHtml               String?
+  extractedTitle        String?
+  extractedText         String?
+  extractedSummary      String?
+  structuredData        Json?
+  ownerId               String?
+  siteId                String?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  owner                 User?               @relation("ContentOwner", fields: [ownerId], references: [id])
+  site                  Site?               @relation(fields: [siteId], references: [id])
+  keywords              Keyword[]
+  drafts                Draft[]
+  sourceRecords         SourceRecord[]
+}
+
+model Draft {
+  id             String       @id @default(cuid())
+  contentItemId  String
+  title          String
+  introduction   String?
+  body           String
+  summary        String?
+  seoTitle       String?
+  seoDescription String?
+  geoSummary     String?
+  tags           String[]
+  section        String?
+  status         DraftStatus  @default(DRAFTING)
+  editorId       String?
+  reviewerId     String?
+  reviewNotes    String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  contentItem    ContentItem  @relation(fields: [contentItemId], references: [id], onDelete: Cascade)
+  editor         User?        @relation("DraftEditor", fields: [editorId], references: [id])
+  reviewer       User?        @relation("DraftReviewer", fields: [reviewerId], references: [id])
+  reviews        ReviewAction[]
+}
+
+model ReviewAction {
+  id         String         @id @default(cuid())
+  draftId    String
+  reviewerId String
+  decision   ReviewDecision
+  comment    String?
+  createdAt  DateTime       @default(now())
+  draft      Draft          @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  reviewer   User           @relation(fields: [reviewerId], references: [id])
+}
+
+model CompanyProfile {
+  id                 String         @id @default(cuid())
+  companyName        String
+  brandName          String?
+  region             String?
+  description        String?
+  positioning        String?
+  mainProducts       String[]
+  advantages         String[]
+  honors             String[]
+  people             Json?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  sourceRecords      SourceRecord[]
+}
+
+model SourceRecord {
+  id               String          @id @default(cuid())
+  companyProfileId String?
+  contentItemId    String?
+  sourceUrl        String
+  sourceTitle      String?
+  note             String?
+  createdAt        DateTime        @default(now())
+  companyProfile   CompanyProfile? @relation(fields: [companyProfileId], references: [id], onDelete: Cascade)
+  contentItem      ContentItem?    @relation(fields: [contentItemId], references: [id], onDelete: Cascade)
+}
+
+model PromptTemplate {
+  id           String      @id @default(cuid())
+  name         String      @unique
+  type         PromptType
+  description  String?
+  systemPrompt String
+  userPrompt   String
+  variables    String[]
+  isActive     Boolean     @default(true)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+}
+
+model OperationLog {
+  id         String   @id @default(cuid())
+  action     String
+  module     String
+  targetType String
+  targetId   String?
+  detail     Json?
+  createdAt  DateTime @default(now())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model Task {
+  id          String          @id @default(cuid())
+  taskName    String
+  taskType    TaskType
+  priority    Int             @default(50)
+  triggerType TaskTriggerType
+  status      TaskStatus      @default(PENDING)
+  payloadJson Json?
+  retryCount  Int             @default(0)
+  maxRetry    Int             @default(1)
+  errorMessage String?
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  scheduledAt DateTime?
+  queueJobId  String?
+  relatedType String?
+  relatedId   String?
+  createdById String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  createdBy   User?           @relation("TaskCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  logs        TaskLog[]
+
+  @@index([status, taskType, priority])
+  @@map("tasks")
+}
+
+model TaskLog {
+  id         String     @id @default(cuid())
+  taskId      String
+  stepName    String
+  status      TaskStatus
+  message     String
+  detailJson  Json?
+  operatorId  String?
+  createdAt   DateTime   @default(now())
+  task        Task       @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  operator    User?      @relation(fields: [operatorId], references: [id], onDelete: SetNull)
+
+  @@index([taskId, createdAt])
+  @@map("task_logs")
+}
+
+model ExceptionEvent {
+  id           String             @id @default(cuid())
+  relatedType  String
+  relatedId    String?
+  exceptionType ExceptionType
+  severity     ExceptionSeverity  @default(MEDIUM)
+  message      String
+  detailJson   Json?
+  status       ExceptionStatus    @default(OPEN)
+  resolvedById String?
+  resolvedAt   DateTime?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  resolvedBy   User?              @relation("ExceptionResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  @@index([status, severity, exceptionType, createdAt])
+  @@map("exceptions")
+}
+
+model RuleDefinition {
+  id              String    @id @default(cuid())
+  ruleName        String
+  ruleType        RuleType
+  ruleScope       String
+  ruleContentJson Json
+  isActive        Boolean   @default(true)
+  version         Int       @default(1)
+  remark          String?
+  createdById     String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  createdBy       User?     @relation("RuleCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([ruleType, isActive])
+  @@map("rules")
+}
