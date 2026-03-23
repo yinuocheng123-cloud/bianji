@@ -1,9 +1,10 @@
 /**
  * 文件说明：第二阶段学习反馈中心页面。
- * 功能说明：聚合审核结果、驳回原因、人工接管结果标签与近 7 天质量趋势，给规则优化和模板优化提供可执行反馈。
+ * 功能说明：聚合审核结果、人工接管结果、来源质量和 AI 企业资料审核反馈，
+ * 为规则优化、模板优化和资料沉淀链提供可执行的运营反馈。
  *
  * 结构概览：
- *   第一部分：依赖导入
+ *   第一部分：依赖导入与类型定义
  *   第二部分：反馈口径与人话映射
  *   第三部分：服务端数据聚合
  *   第四部分：反馈中心页面渲染
@@ -17,6 +18,7 @@ import { StatCard } from "@/components/stat-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { companyReviewIssueCategoryLabels } from "@/lib/constants";
 import { db } from "@/lib/db";
 import { withFallback } from "@/lib/safe-data";
 import { formatDateTime } from "@/lib/utils";
@@ -26,6 +28,13 @@ type ManualResolutionTag =
   | "FIXED_RULE"
   | "HANDLED_MANUALLY"
   | "IGNORED_AFTER_CHECK"
+  | "OTHER";
+
+type CompanyRejectCategoryKey =
+  | "SOURCE_INSUFFICIENT"
+  | "WEBSITE_EVIDENCE_INSUFFICIENT"
+  | "MISSING_FIELDS"
+  | "CONFLICT_IDENTIFICATION"
   | "OTHER";
 
 type FeedbackTrendRow = {
@@ -214,6 +223,7 @@ export default async function OpsFeedbackPage() {
             companyName: true,
             reviewStatus: true,
             reviewNotes: true,
+            reviewIssueCategory: true,
             updatedAt: true,
             officialWebsite: true,
             submissionSource: true,
@@ -360,6 +370,44 @@ export default async function OpsFeedbackPage() {
           ? 0
           : Math.round((companyReviewSummary.rejected / decidedCompanyReviewCount) * 100);
 
+      const rejectCategoryMap = new Map<
+        CompanyRejectCategoryKey,
+        {
+          count: number;
+          latestAt: Date;
+          sampleCompanyId: string;
+          sampleCompanyName: string;
+          latestNote: string | null;
+        }
+      >();
+
+      for (const company of companyReviewItems) {
+        if (company.reviewStatus !== "REJECTED" || !company.reviewIssueCategory) {
+          continue;
+        }
+
+        const key = company.reviewIssueCategory as CompanyRejectCategoryKey;
+        const current = rejectCategoryMap.get(key);
+        if (current) {
+          current.count += 1;
+          if (company.updatedAt > current.latestAt) {
+            current.latestAt = company.updatedAt;
+            current.sampleCompanyId = company.id;
+            current.sampleCompanyName = company.companyName;
+            current.latestNote = company.reviewNotes;
+          }
+          continue;
+        }
+
+        rejectCategoryMap.set(key, {
+          count: 1,
+          latestAt: company.updatedAt,
+          sampleCompanyId: company.id,
+          sampleCompanyName: company.companyName,
+          latestNote: company.reviewNotes,
+        });
+      }
+
       return {
         totalReviewCount,
         approvedCount,
@@ -391,6 +439,13 @@ export default async function OpsFeedbackPage() {
           .slice(0, 5),
         companyReviewSummary,
         recentCompanyReviews: companyReviewItems.slice(0, 8),
+        companyRejectCategories: [...rejectCategoryMap.entries()]
+          .map(([category, value]) => ({
+            category,
+            label: companyReviewIssueCategoryLabels[category],
+            ...value,
+          }))
+          .sort((a, b) => b.count - a.count || b.latestAt.getTime() - a.latestAt.getTime()),
       };
     },
     {
@@ -439,9 +494,19 @@ export default async function OpsFeedbackPage() {
         companyName: string;
         reviewStatus: "PENDING" | "APPROVED" | "REJECTED";
         reviewNotes: string | null;
+        reviewIssueCategory: CompanyRejectCategoryKey | null;
         updatedAt: Date;
         officialWebsite: string | null;
         submissionSource: string | null;
+      }[],
+      companyRejectCategories: [] as {
+        category: CompanyRejectCategoryKey;
+        label: string;
+        count: number;
+        latestAt: Date;
+        sampleCompanyId: string;
+        sampleCompanyName: string;
+        latestNote: string | null;
       }[],
     },
   );
@@ -450,7 +515,7 @@ export default async function OpsFeedbackPage() {
     <div className="space-y-6">
       <PageHeader
         title="学习反馈中心"
-        description="把审核结果、驳回原因、人工接管结果标签与近 7 天质量波动统一沉淀下来，后续才能稳定反哺规则、模板和推荐动作。"
+        description="把审核结果、人工接管结果、来源质量和 AI 企业资料审核反馈统一沉淀下来，后续才能稳定反哺规则、模板和推荐动作。"
         action={
           <div className="flex flex-wrap gap-2">
             <Link href="/ops/rules">
@@ -468,16 +533,8 @@ export default async function OpsFeedbackPage() {
       />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          title="审核通过数"
-          value={data.approvedCount}
-          description={`当前累计通过率 ${data.approvalRate}%`}
-        />
-        <StatCard
-          title="审核驳回数"
-          value={data.rejectedCount}
-          description={`当前累计驳回率 ${data.rejectRate}%`}
-        />
+        <StatCard title="审核通过数" value={data.approvedCount} description={`当前累计通过率 ${data.approvalRate}%`} />
+        <StatCard title="审核驳回数" value={data.rejectedCount} description={`当前累计驳回率 ${data.rejectRate}%`} />
         <StatCard
           title="待修订要求数"
           value={data.revisionCount}
@@ -516,7 +573,9 @@ export default async function OpsFeedbackPage() {
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <Card>
           <h2 className="text-lg font-semibold text-slate-900">近 7 天质量趋势</h2>
-          <p className="mt-1 text-sm text-slate-500">先用最直接的审核结果和人工收口结果做趋势观察，避免一开始就堆复杂图表。</p>
+          <p className="mt-1 text-sm text-slate-500">
+            先用最直接的审核结果和人工收口结果做趋势观察，避免一开始就堆复杂图表。
+          </p>
 
           <div className="mt-5 space-y-3">
             {data.trend.map((item) => (
@@ -535,7 +594,9 @@ export default async function OpsFeedbackPage() {
 
         <Card>
           <h2 className="text-lg font-semibold text-slate-900">人工完成结果标签</h2>
-          <p className="mt-1 text-sm text-slate-500">这些标签直接反映异常是靠补数据、修规则还是纯人工兜底解决，后面可直接反哺规则优先级。</p>
+          <p className="mt-1 text-sm text-slate-500">
+            这些标签直接反映异常是靠补数据、修规则还是纯人工兜底解决，后面可直接反哺规则优先级。
+          </p>
 
           <div className="mt-5 space-y-3">
             {data.manualTagStats.length === 0 ? (
@@ -564,7 +625,9 @@ export default async function OpsFeedbackPage() {
       <div className="grid gap-6 xl:grid-cols-2">
         <Card>
           <h2 className="text-lg font-semibold text-slate-900">高频驳回原因</h2>
-          <p className="mt-1 text-sm text-slate-500">先从审核驳回原因里找重复模式，后续才能沉淀成规则和模板优化项。</p>
+          <p className="mt-1 text-sm text-slate-500">
+            先从审核驳回原因里找重复模式，后续才能沉淀成规则和模板优化项。
+          </p>
 
           <div className="mt-5 space-y-3">
             {data.rejectReasons.length === 0 ? (
@@ -596,7 +659,9 @@ export default async function OpsFeedbackPage() {
 
         <Card>
           <h2 className="text-lg font-semibold text-slate-900">最近人工收口样本</h2>
-          <p className="mt-1 text-sm text-slate-500">优先保留带标签的人工收口样本，后续更容易回看哪些问题是规则该接、哪些还是得人工兜底。</p>
+          <p className="mt-1 text-sm text-slate-500">
+            优先保留带标签的人工收口样本，后续更容易回看哪些问题是规则该接、哪些还得人工兜底。
+          </p>
 
           <div className="mt-5 space-y-3">
             {data.recentTaggedManuals.length === 0 ? (
@@ -622,7 +687,9 @@ export default async function OpsFeedbackPage() {
       <div className="grid gap-6 xl:grid-cols-2">
         <Card>
           <h2 className="text-lg font-semibold text-slate-900">AI 企业资料审核结果</h2>
-          <p className="mt-1 text-sm text-slate-500">这部分专门看 AI 自动提交的企业资料进入人工审核后的结果，后续会继续反哺企业检索模板与来源规则。</p>
+          <p className="mt-1 text-sm text-slate-500">
+            这部分专门看 AI 自动提交的企业资料进入人工审核后的结果，后续会继续反哺企业检索模板与来源规则。
+          </p>
 
           <div className="mt-5 space-y-3">
             {data.recentCompanyReviews.length === 0 ? (
@@ -648,6 +715,11 @@ export default async function OpsFeedbackPage() {
                             ? "已驳回"
                             : "待审核"}
                       </Badge>
+                      {item.reviewIssueCategory ? (
+                        <Badge tone="warning">
+                          {companyReviewIssueCategoryLabels[item.reviewIssueCategory]}
+                        </Badge>
+                      ) : null}
                       <Badge tone="info">
                         {item.submissionSource === "AI_DISCOVERY" ? "真实 AI 提交" : "检索兜底提交"}
                       </Badge>
@@ -681,8 +753,46 @@ export default async function OpsFeedbackPage() {
         </Card>
 
         <Card>
+          <h2 className="text-lg font-semibold text-slate-900">AI 企业驳回分类</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            把企业资料驳回从“只有备注”收束到可统计的分类口径，后续可直接反哺来源规则、官网证据要求和字段校验逻辑。
+          </p>
+
+          <div className="mt-5 space-y-3">
+            {data.companyRejectCategories.length === 0 ? (
+              <p className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-500">当前还没有可统计的企业资料驳回分类样本。</p>
+            ) : (
+              data.companyRejectCategories.map((item) => (
+                <div key={item.category} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <Badge tone="warning">{item.label}</Badge>
+                      <p className="text-sm font-medium text-slate-900">{item.count} 次</p>
+                    </div>
+                    <p className="text-xs text-slate-500">{formatDateTime(item.latestAt)}</p>
+                  </div>
+                  <p className="mt-2 text-sm text-slate-700">最近样本：{item.sampleCompanyName}</p>
+                  <p className="mt-1 text-xs text-slate-500">{item.latestNote ?? "暂无驳回说明"}</p>
+                  <div className="mt-3">
+                    <Link href="/companies">
+                      <Button type="button" variant="secondary">
+                        去企业资料页处理
+                      </Button>
+                    </Link>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-2">
+        <Card>
           <h2 className="text-lg font-semibold text-slate-900">高质量来源排行</h2>
-          <p className="mt-1 text-sm text-slate-500">先用通过、待审核和归档/驳回情况做轻量评分，帮助后续调整来源优先级。</p>
+          <p className="mt-1 text-sm text-slate-500">
+            先用通过、待审核和归档/驳回情况做轻量评分，帮助后续调整来源优先级。
+          </p>
 
           <div className="mt-5 space-y-3">
             {data.topSources.length === 0 ? (
@@ -709,7 +819,9 @@ export default async function OpsFeedbackPage() {
 
         <Card>
           <h2 className="text-lg font-semibold text-slate-900">低质量来源观察</h2>
-          <p className="mt-1 text-sm text-slate-500">这部分优先帮助管理员决定哪些来源要降权、限流，或转成只入库不发布。</p>
+          <p className="mt-1 text-sm text-slate-500">
+            这部分优先帮助管理员决定哪些来源要降权、限流，或转成只入库不发布。
+          </p>
 
           <div className="mt-5 space-y-3">
             {data.lowSources.length === 0 ? (

@@ -42,6 +42,7 @@ export async function PATCH(request: Request, context: RouteContext<"/api/compan
       officialWebsite: body.officialWebsite,
       reviewStatus: body.reviewStatus,
       reviewNotes: body.reviewNotes,
+      reviewIssueCategory: body.reviewIssueCategory,
       mainProducts: Array.isArray(body.mainProducts) ? body.mainProducts : undefined,
       advantages: Array.isArray(body.advantages) ? body.advantages : undefined,
       honors: Array.isArray(body.honors) ? body.honors : undefined,

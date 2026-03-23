@@ -56,6 +56,14 @@ enum ReviewStatus {
   REJECTED
 }
 
+enum CompanyReviewIssueCategory {
+  SOURCE_INSUFFICIENT
+  WEBSITE_EVIDENCE_INSUFFICIENT
+  MISSING_FIELDS
+  CONFLICT_IDENTIFICATION
+  OTHER
+}
+
 enum TaskType {
   SEARCH
   CRAWL
@@ -242,6 +250,7 @@ model CompanyProfile {
   officialWebsite    String?
   reviewStatus       ReviewStatus   @default(APPROVED)
   reviewNotes        String?
+  reviewIssueCategory CompanyReviewIssueCategory?
   submissionSource   String?
   mainProducts       String[]
   advantages         String[]

@@ -23,6 +23,7 @@ export async function POST(request: Request, context: RouteContext<"/api/compani
     data: {
       reviewStatus: "APPROVED",
       reviewNotes: note || "企业资料已审核通过。",
+      reviewIssueCategory: null,
     },
     include: {
       sourceRecords: true,

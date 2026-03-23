@@ -8,7 +8,14 @@
  *   第三部分：模块说明
  */
 
-import type { DraftStatus, PromptType, ReviewStatus, UserRole, WorkflowStatus } from "@prisma/client";
+import type {
+  CompanyReviewIssueCategory,
+  DraftStatus,
+  PromptType,
+  ReviewStatus,
+  UserRole,
+  WorkflowStatus,
+} from "@prisma/client";
 import {
   Archive,
   Bot,
@@ -73,6 +80,14 @@ export const reviewStatusLabels: Record<ReviewStatus, string> = {
   PENDING: "待审核",
   APPROVED: "已通过",
   REJECTED: "已驳回",
+};
+
+export const companyReviewIssueCategoryLabels: Record<CompanyReviewIssueCategory, string> = {
+  SOURCE_INSUFFICIENT: "来源不足",
+  WEBSITE_EVIDENCE_INSUFFICIENT: "官网证据不足",
+  MISSING_FIELDS: "关键字段缺失",
+  CONFLICT_IDENTIFICATION: "识别冲突",
+  OTHER: "其他原因",
 };
 
 export const contentStatusFlow: WorkflowStatus[] = [

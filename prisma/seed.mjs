@@ -281,6 +281,7 @@ async function main() {
     where: { id: "seed-company-004" },
     update: {
       reviewStatus: ReviewStatus.REJECTED,
+      reviewIssueCategory: "SOURCE_INSUFFICIENT",
       reviewNotes: "来源不足且官网证据不清，需要重新检索。",
       submissionSource: "SEARCH_DISCOVERY",
       officialWebsite: null,
@@ -294,6 +295,7 @@ async function main() {
       positioning: "待确认",
       officialWebsite: null,
       reviewStatus: ReviewStatus.REJECTED,
+      reviewIssueCategory: "SOURCE_INSUFFICIENT",
       reviewNotes: "来源不足且官网证据不清，需要重新检索。",
       submissionSource: "SEARCH_DISCOVERY",
       mainProducts: ["待确认"],
