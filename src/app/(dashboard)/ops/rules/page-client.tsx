@@ -141,6 +141,35 @@ function shortenJsonValue(value: string) {
   return value.length > 40 ? `${value.slice(0, 40)}...` : value;
 }
 
+type RuleContentPathChange = {
+  kind: "added" | "removed" | "changed";
+  path: string;
+  beforeValue: string;
+  afterValue: string;
+};
+
+type RuleContentDiffGroup = {
+  groupKey: string;
+  groupLabel: string;
+  changes: RuleContentPathChange[];
+};
+
+function humanizePath(path: string) {
+  return path.replaceAll(".", " / ");
+}
+
+function getPathGroup(path: string) {
+  const match = path.match(/^[^.[\]]+/);
+  if (!match) {
+    return { groupKey: "root", groupLabel: "根节点" };
+  }
+
+  return {
+    groupKey: match[0],
+    groupLabel: match[0],
+  };
+}
+
 function getRuleContentKeyDiff(beforeValue: unknown, afterValue: unknown) {
   const beforePaths = flattenJsonPaths(beforeValue);
   const afterPaths = flattenJsonPaths(afterValue);
@@ -158,6 +187,55 @@ function getRuleContentKeyDiff(beforeValue: unknown, afterValue: unknown) {
     beforePaths,
     afterPaths,
   };
+}
+
+function getGroupedRuleContentDiff(beforeValue: unknown, afterValue: unknown) {
+  const { addedKeys, removedKeys, changedKeys, beforePaths, afterPaths } = getRuleContentKeyDiff(beforeValue, afterValue);
+  const grouped = new Map<string, RuleContentDiffGroup>();
+
+  const appendChange = (change: RuleContentPathChange) => {
+    const meta = getPathGroup(change.path);
+    const current = grouped.get(meta.groupKey);
+    if (current) {
+      current.changes.push(change);
+      return;
+    }
+
+    grouped.set(meta.groupKey, {
+      groupKey: meta.groupKey,
+      groupLabel: meta.groupLabel,
+      changes: [change],
+    });
+  };
+
+  for (const key of addedKeys) {
+    appendChange({
+      kind: "added",
+      path: key,
+      beforeValue: "",
+      afterValue: afterPaths[key] ?? "",
+    });
+  }
+
+  for (const key of removedKeys) {
+    appendChange({
+      kind: "removed",
+      path: key,
+      beforeValue: beforePaths[key] ?? "",
+      afterValue: "",
+    });
+  }
+
+  for (const key of changedKeys) {
+    appendChange({
+      kind: "changed",
+      path: key,
+      beforeValue: beforePaths[key] ?? "",
+      afterValue: afterPaths[key] ?? "",
+    });
+  }
+
+  return [...grouped.values()].sort((a, b) => a.groupLabel.localeCompare(b.groupLabel, "zh-CN"));
 }
 
 function humanizeValue(field: string, value: unknown) {
@@ -249,6 +327,18 @@ function summarizeRuleContentDiff(beforeValue: unknown, afterValue: unknown) {
   }
 
   return parts.length > 0 ? parts.join("；") : "结构未发生明显变化";
+}
+
+function getChangeBadgeTone(kind: RuleContentPathChange["kind"]) {
+  if (kind === "added") return "success" as const;
+  if (kind === "removed") return "danger" as const;
+  return "warning" as const;
+}
+
+function getChangeLabel(kind: RuleContentPathChange["kind"]) {
+  if (kind === "added") return "新增";
+  if (kind === "removed") return "删除";
+  return "变更";
 }
 
 function summarizeLog(log: RuleLogRow) {
@@ -554,7 +644,43 @@ export function RulesManager({ items, logs }: { items: RuleRow[]; logs: RuleLogR
                               {humanizeField(field)}：{humanizeValue(field, before[field])} {"->"} {humanizeValue(field, after[field])}
                             </p>
                             {field === "ruleContentJson" ? (
-                              <p className="text-slate-500">键级变化：{summarizeRuleContentDiff(before[field], after[field])}</p>
+                              <div className="space-y-2 rounded-xl border border-slate-200 bg-white/80 px-3 py-3">
+                                <p className="text-slate-500">路径摘要：{summarizeRuleContentDiff(before[field], after[field])}</p>
+                                <div className="space-y-2">
+                                  {getGroupedRuleContentDiff(before[field], after[field]).map((group) => (
+                                    <div key={group.groupKey} className="rounded-xl bg-slate-50 px-3 py-3">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <Badge tone="info">{group.groupLabel}</Badge>
+                                        <p className="text-slate-500">{group.changes.length} 处路径变化</p>
+                                      </div>
+                                      <div className="mt-2 space-y-2">
+                                        {group.changes.slice(0, 6).map((change) => (
+                                          <div key={`${change.kind}-${change.path}`} className="rounded-lg bg-white px-3 py-2">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                              <Badge tone={getChangeBadgeTone(change.kind)}>{getChangeLabel(change.kind)}</Badge>
+                                              <p className="font-medium text-slate-700">{humanizePath(change.path)}</p>
+                                            </div>
+                                            {change.kind === "added" ? (
+                                              <p className="mt-1 text-slate-500">新值：{shortenJsonValue(change.afterValue)}</p>
+                                            ) : null}
+                                            {change.kind === "removed" ? (
+                                              <p className="mt-1 text-slate-500">旧值：{shortenJsonValue(change.beforeValue)}</p>
+                                            ) : null}
+                                            {change.kind === "changed" ? (
+                                              <p className="mt-1 text-slate-500">
+                                                {shortenJsonValue(change.beforeValue)} {"->"} {shortenJsonValue(change.afterValue)}
+                                              </p>
+                                            ) : null}
+                                          </div>
+                                        ))}
+                                        {group.changes.length > 6 ? (
+                                          <p className="text-slate-400">还有 {group.changes.length - 6} 处路径变化未展开。</p>
+                                        ) : null}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
                             ) : null}
                           </div>
                         ))}

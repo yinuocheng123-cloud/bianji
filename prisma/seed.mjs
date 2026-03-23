@@ -125,6 +125,60 @@ async function main() {
     },
   });
 
+  await prisma.draft.upsert({
+    where: { id: "seed-draft-002" },
+    update: {},
+    create: {
+      id: "seed-draft-002",
+      contentItemId: content.id,
+      title: "整木企业资料稿需要补齐来源与荣誉依据",
+      introduction: "这是一条用于反馈中心演示的资料整理稿。",
+      body: "<p>示例正文：用于演示审核通过、驳回与人工修订反馈。</p>",
+      summary: "用于反馈中心的审核样本。",
+      seoTitle: "整木企业资料整理示例",
+      seoDescription: "反馈中心统计用演示草稿。",
+      geoSummary: "整木资料稿反馈样本。",
+      tags: ["企业资料", "反馈样本"],
+      section: "企业资料",
+      status: DraftStatus.REJECTED,
+      editorId: editor.id,
+      reviewerId: reviewer.id,
+      reviewNotes: "来源链接和荣誉依据不足，需要补齐。",
+    },
+  });
+
+  await prisma.reviewAction.deleteMany({
+    where: {
+      draftId: { in: ["seed-draft-001", "seed-draft-002"] },
+    },
+  });
+
+  await prisma.reviewAction.createMany({
+    data: [
+      {
+        draftId: "seed-draft-001",
+        reviewerId: reviewer.id,
+        decision: "APPROVED",
+        comment: "结构清晰，可继续进入发布前检查。",
+        createdAt: new Date("2026-03-20T09:00:00.000Z"),
+      },
+      {
+        draftId: "seed-draft-002",
+        reviewerId: reviewer.id,
+        decision: "REJECTED",
+        comment: "来源依据不足，需要补齐荣誉和发布时间。",
+        createdAt: new Date("2026-03-21T11:00:00.000Z"),
+      },
+      {
+        draftId: "seed-draft-002",
+        reviewerId: reviewer.id,
+        decision: "NEEDS_REVISION",
+        comment: "企业定位表述偏空，需要补一段更具体的主营说明。",
+        createdAt: new Date("2026-03-22T15:30:00.000Z"),
+      },
+    ],
+  });
+
   await prisma.companyProfile.upsert({
     where: { id: "seed-company-001" },
     update: {},
@@ -304,6 +358,43 @@ async function main() {
       message: "示例正文抽取失败，用于异常中心展示。",
       detailJson: { contentItemId: content.id, taskId: seedTask.id },
       status: ExceptionStatus.OPEN,
+    },
+  });
+
+  await prisma.exceptionEvent.upsert({
+    where: { id: "seed-exception-002" },
+    update: {
+      relatedType: "contentItem",
+      relatedId: content.id,
+      exceptionType: ExceptionType.MISSING_REQUIRED_FIELDS,
+      severity: ExceptionSeverity.MEDIUM,
+      message: "企业资料稿缺少来源依据，已由人工补齐来源记录后关闭。",
+      detailJson: {
+        contentItemId: content.id,
+        manualResolutionNote: "已补充来源记录，并将类似来源缺失问题列入资料稿检查项。",
+        manualResolutionTag: "FIXED_DATA",
+        manualCompletedAt: "2026-03-22T09:30:00.000Z",
+      },
+      status: ExceptionStatus.RESOLVED,
+      resolvedById: admin.id,
+      resolvedAt: new Date("2026-03-22T09:30:00.000Z"),
+    },
+    create: {
+      id: "seed-exception-002",
+      relatedType: "contentItem",
+      relatedId: content.id,
+      exceptionType: ExceptionType.MISSING_REQUIRED_FIELDS,
+      severity: ExceptionSeverity.MEDIUM,
+      message: "企业资料稿缺少来源依据，已由人工补齐来源记录后关闭。",
+      detailJson: {
+        contentItemId: content.id,
+        manualResolutionNote: "已补充来源记录，并将类似来源缺失问题列入资料稿检查项。",
+        manualResolutionTag: "FIXED_DATA",
+        manualCompletedAt: "2026-03-22T09:30:00.000Z",
+      },
+      status: ExceptionStatus.RESOLVED,
+      resolvedById: admin.id,
+      resolvedAt: new Date("2026-03-22T09:30:00.000Z"),
     },
   });
 
