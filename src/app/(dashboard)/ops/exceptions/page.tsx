@@ -1,11 +1,12 @@
 /**
  * 文件说明：第二阶段异常中心页面。
- * 功能说明：集中呈现任务失败、字段缺失、审核前缺字段和人工接管中的异常，形成异常查看与处理闭环。
+ * 功能说明：集中呈现任务失败、字段缺失、审核前缺字段、人工接管和人工完成记录，形成异常查看与处理闭环。
  *
  * 结构概览：
  *   第一部分：异常人话映射
- *   第二部分：服务端数据读取
- *   第三部分：异常中心渲染
+ *   第二部分：人工处理说明读取
+ *   第三部分：服务端数据读取
+ *   第四部分：异常中心渲染
  */
 
 import Link from "next/link";
@@ -45,59 +46,88 @@ function explainException(exceptionType: string) {
   return { type: "流程异常", severity: "medium", suggestion: "建议先查看错误详情，再决定重试还是转人工。" };
 }
 
+function getManualResolutionNote(detailJson: unknown) {
+  if (!detailJson || typeof detailJson !== "object" || Array.isArray(detailJson)) {
+    return "";
+  }
+
+  return typeof (detailJson as Record<string, unknown>).manualResolutionNote === "string"
+    ? ((detailJson as Record<string, unknown>).manualResolutionNote as string)
+    : "";
+}
+
 export const dynamic = "force-dynamic";
 
 export default async function OpsExceptionsPage() {
   const data = await withFallback(
     async () => {
-      const [exceptions, manualExceptions, missingFieldItems, reviewReadyDrafts] = await Promise.all([
-        db.exceptionEvent.findMany({
-          where: { status: { in: ["OPEN", "RETRYING"] } },
-          orderBy: { createdAt: "desc" },
-          take: 12,
-          include: { resolvedBy: true },
-        }),
-        db.exceptionEvent.findMany({
-          where: { status: "MANUAL_PROCESSING" },
-          orderBy: { updatedAt: "desc" },
-          take: 8,
-          include: { resolvedBy: true },
-        }),
-        db.contentItem.findMany({
-          where: {
-            OR: [{ publishedAt: null }, { contentTypeSuggestion: null }, { extractedText: null }],
-          },
-          orderBy: { updatedAt: "desc" },
-          take: 8,
-          select: {
-            id: true,
-            title: true,
-            publishedAt: true,
-            contentTypeSuggestion: true,
-            extractedText: true,
-            updatedAt: true,
-          },
-        }),
-        db.draft.findMany({
-          where: {
-            status: "IN_REVIEW",
-            OR: [{ seoTitle: null }, { seoDescription: null }, { geoSummary: null }, { summary: null }],
-          },
-          orderBy: { updatedAt: "desc" },
-          take: 8,
-          select: {
-            id: true,
-            title: true,
-            updatedAt: true,
-            seoTitle: true,
-            seoDescription: true,
-            geoSummary: true,
-            summary: true,
-          },
-        }),
-      ]);
+      const [exceptions, manualExceptions, recentlyCompletedManual, missingFieldItems, reviewReadyDrafts] =
+        await Promise.all([
+          db.exceptionEvent.findMany({
+            where: { status: { in: ["OPEN", "RETRYING"] } },
+            orderBy: { createdAt: "desc" },
+            take: 12,
+            include: { resolvedBy: true },
+          }),
+          db.exceptionEvent.findMany({
+            where: { status: "MANUAL_PROCESSING" },
+            orderBy: { updatedAt: "desc" },
+            take: 8,
+            include: { resolvedBy: true },
+          }),
+          db.exceptionEvent.findMany({
+            where: { status: "RESOLVED", resolvedById: { not: null } },
+            orderBy: { resolvedAt: "desc" },
+            take: 12,
+            include: { resolvedBy: true },
+          }),
+          db.contentItem.findMany({
+            where: {
+              OR: [{ publishedAt: null }, { contentTypeSuggestion: null }, { extractedText: null }],
+            },
+            orderBy: { updatedAt: "desc" },
+            take: 8,
+            select: {
+              id: true,
+              title: true,
+              publishedAt: true,
+              contentTypeSuggestion: true,
+              extractedText: true,
+              updatedAt: true,
+            },
+          }),
+          db.draft.findMany({
+            where: {
+              status: "IN_REVIEW",
+              OR: [{ seoTitle: null }, { seoDescription: null }, { geoSummary: null }, { summary: null }],
+            },
+            orderBy: { updatedAt: "desc" },
+            take: 8,
+            select: {
+              id: true,
+              title: true,
+              updatedAt: true,
+              seoTitle: true,
+              seoDescription: true,
+              geoSummary: true,
+              summary: true,
+            },
+          }),
+        ]);
 
-      return { exceptions, manualExceptions, missingFieldItems, reviewReadyDrafts };
+      return {
+        exceptions,
+        manualExceptions,
+        recentlyCompletedManual: recentlyCompletedManual
+          .map((item) => ({
+            ...item,
+            note: getManualResolutionNote(item.detailJson),
+          }))
+          .filter((item) => item.note || item.resolvedAt)
+          .slice(0, 6),
+        missingFieldItems,
+        reviewReadyDrafts,
+      };
     },
     {
       exceptions: [] as {
@@ -120,6 +150,15 @@ export default async function OpsExceptionsPage() {
         status: string;
         updatedAt: Date;
         message: string;
+        detailJson: unknown;
+        resolvedBy: { name: string | null } | null;
+      }[],
+      recentlyCompletedManual: [] as {
+        id: string;
+        exceptionType: string;
+        message: string;
+        resolvedAt: Date | null;
+        note: string;
         resolvedBy: { name: string | null } | null;
       }[],
       missingFieldItems: [] as {
@@ -197,7 +236,7 @@ export default async function OpsExceptionsPage() {
                         </Badge>
                       </div>
                       <p className="mt-2 text-sm text-slate-500">
-                        类型：{item.exceptionType} · 时间：{formatDateTime(item.createdAt)} · 关联：{item.relatedId ?? "未记录"}
+                        类型：{item.exceptionType} 路 时间：{formatDateTime(item.createdAt)} 路 关联：{item.relatedId ?? "未记录"}
                       </p>
                       <p className="mt-2 text-sm leading-6 text-rose-800">{item.message}</p>
                       <p className="mt-2 text-sm text-slate-600">建议处理：{meta.suggestion}</p>
@@ -241,6 +280,7 @@ export default async function OpsExceptionsPage() {
           ) : (
             data.manualExceptions.map((item) => {
               const meta = explainException(item.exceptionType);
+              const note = getManualResolutionNote(item.detailJson);
 
               return (
                 <div key={item.id} className="rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-4">
@@ -250,15 +290,43 @@ export default async function OpsExceptionsPage() {
                   </div>
                   <p className="mt-2 text-sm text-slate-600">{item.message}</p>
                   <p className="mt-1 text-sm text-slate-500">
-                    负责人：{item.resolvedBy?.name ?? "待分配"} · 最近更新时间：{formatDateTime(item.updatedAt)}
+                    负责人：{item.resolvedBy?.name ?? "待分配"} 路 最近更新时间：{formatDateTime(item.updatedAt)}
                   </p>
                   <p className="mt-1 text-sm text-slate-500">建议下一步：{meta.suggestion}</p>
+                  {note ? (
+                    <p className="mt-2 rounded-xl bg-white/80 px-3 py-2 text-sm text-slate-600">处理中说明：{note}</p>
+                  ) : null}
                   <div className="mt-3">
                     <ExceptionActions exceptionId={item.id} canRetry={false} status={item.status} />
                   </div>
                 </div>
               );
             })
+          )}
+        </div>
+      </Card>
+
+      <Card>
+        <h2 className="text-lg font-semibold text-slate-900">最近人工完成</h2>
+        <p className="mt-1 text-sm text-slate-500">这里专门保留人工处理收口时写下的说明，方便后续复盘和规则回收。</p>
+
+        <div className="mt-5 space-y-3">
+          {data.recentlyCompletedManual.length === 0 ? (
+            <p className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-500">最近还没有带处理说明的人工完成记录。</p>
+          ) : (
+            data.recentlyCompletedManual.map((item) => (
+              <div key={item.id} className="rounded-2xl border border-emerald-200 bg-emerald-50/70 px-4 py-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge tone="success">人工已完成</Badge>
+                  <p className="font-medium text-slate-900">{explainException(item.exceptionType).type}</p>
+                </div>
+                <p className="mt-2 text-sm text-slate-700">{item.message}</p>
+                <p className="mt-1 text-sm text-slate-500">
+                  处理人：{item.resolvedBy?.name ?? "未记录"} 路 完成时间：{item.resolvedAt ? formatDateTime(item.resolvedAt) : "未记录"}
+                </p>
+                <p className="mt-2 rounded-xl bg-white/80 px-3 py-2 text-sm text-slate-600">处理说明：{item.note || "未填写"}</p>
+              </div>
+            ))
           )}
         </div>
       </Card>

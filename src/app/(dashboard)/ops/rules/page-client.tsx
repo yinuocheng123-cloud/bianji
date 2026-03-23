@@ -93,6 +93,47 @@ function humanizeField(field: string) {
 }
 
 function humanizeValue(field: string, value: unknown) {
+  if (field === "ruleContentJson") {
+    if (!value || typeof value !== "object") {
+      return "空";
+    }
+
+    if (Array.isArray(value)) {
+      return `数组，包含 ${value.length} 项`;
+    }
+
+    const record = value as Record<string, unknown>;
+    const keys = Object.keys(record);
+    const preview = keys.slice(0, 4).join("、");
+
+    if (keys.length === 0) {
+      return "空对象";
+    }
+
+    const fragments = keys.slice(0, 3).map((key) => {
+      const current = record[key];
+      if (typeof current === "string") {
+        return `${key}=${current.slice(0, 16)}${current.length > 16 ? "..." : ""}`;
+      }
+
+      if (typeof current === "number" || typeof current === "boolean") {
+        return `${key}=${String(current)}`;
+      }
+
+      if (Array.isArray(current)) {
+        return `${key}=数组(${current.length})`;
+      }
+
+      if (current && typeof current === "object") {
+        return `${key}=对象`;
+      }
+
+      return `${key}=空`;
+    });
+
+    return `对象，${keys.length} 个键：${preview}${keys.length > 4 ? " 等" : ""}${fragments.length ? `；示例：${fragments.join("；")}` : ""}`;
+  }
+
   if (field === "isActive") {
     return value ? "启用" : "停用";
   }

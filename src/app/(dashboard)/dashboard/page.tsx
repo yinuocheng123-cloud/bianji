@@ -4,8 +4,9 @@
  *
  * 结构概览：
  *   第一部分：失败类型映射
- *   第二部分：服务端数据读取
- *   第三部分：工作台首页渲染
+ *   第二部分：人工接管入口映射
+ *   第三部分：服务端数据读取
+ *   第四部分：工作台首页渲染
  */
 
 import Link from "next/link";
@@ -15,12 +16,13 @@ import { StatCard } from "@/components/stat-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { requireSessionUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getManagedQueuesStatus } from "@/lib/queue";
 import { withFallback } from "@/lib/safe-data";
 import { formatDateTime } from "@/lib/utils";
 
-import { DashboardControlPanel } from "./page-client";
+import { DashboardControlPanel, DashboardManualExceptionsPanel } from "./page-client";
 
 function getFailureMeta(queue: string) {
   if (queue.includes("crawl")) {
@@ -95,7 +97,18 @@ function getManualExceptionLink(item: {
   };
 }
 
+function getManualResolutionNote(detailJson: unknown) {
+  if (!detailJson || typeof detailJson !== "object" || Array.isArray(detailJson)) {
+    return "";
+  }
+
+  return typeof (detailJson as Record<string, unknown>).manualResolutionNote === "string"
+    ? ((detailJson as Record<string, unknown>).manualResolutionNote as string)
+    : "";
+}
+
 export default async function DashboardPage() {
+  const currentUser = await requireSessionUser();
   const data = await withFallback(
     async () => {
       const [
@@ -165,7 +178,7 @@ export default async function DashboardPage() {
         db.exceptionEvent.findMany({
           where: { status: "MANUAL_PROCESSING" },
           orderBy: { updatedAt: "desc" },
-          take: 5,
+          take: 6,
           include: { resolvedBy: true },
         }),
       ]);
@@ -250,8 +263,10 @@ export default async function DashboardPage() {
           message: item.message,
           updatedAt: item.updatedAt,
           resolvedBy: item.resolvedBy,
-          detailJson: item.detailJson,
-          ...getManualExceptionLink(item),
+          resolvedById: item.resolvedById,
+          href: getManualExceptionLink(item).href,
+          label: getManualExceptionLink(item).label,
+          note: getManualResolutionNote(item.detailJson),
         })),
       };
     },
@@ -306,9 +321,10 @@ export default async function DashboardPage() {
         message: string;
         updatedAt: Date;
         resolvedBy: { name: string | null } | null;
-        detailJson: unknown;
+        resolvedById: string | null;
         href: string;
         label: string;
+        note: string;
       }[],
     },
   );
@@ -357,7 +373,7 @@ export default async function DashboardPage() {
                   <div key={draft.id} className="rounded-2xl bg-slate-50 px-4 py-3 text-sm">
                     <p className="font-medium text-slate-800">{draft.title}</p>
                     <p className="mt-1 text-slate-500">
-                      {draft.editor?.name ?? "未分配编辑"} · {formatDateTime(draft.updatedAt)}
+                      {draft.editor?.name ?? "未分配编辑"} 路 {formatDateTime(draft.updatedAt)}
                     </p>
                   </div>
                 ))
@@ -375,7 +391,7 @@ export default async function DashboardPage() {
                   <div key={log.id} className="rounded-2xl bg-slate-50 px-4 py-3 text-sm">
                     <p className="font-medium text-slate-800">{log.action}</p>
                     <p className="mt-1 text-slate-500">
-                      {log.module} · {log.user?.name ?? "系统"} · {formatDateTime(log.createdAt)}
+                      {log.module} 路 {log.user?.name ?? "系统"} 路 {formatDateTime(log.createdAt)}
                     </p>
                   </div>
                 ))
@@ -385,47 +401,7 @@ export default async function DashboardPage() {
         </Card>
       </div>
 
-      <Card>
-        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div>
-            <h3 className="text-lg font-semibold text-slate-900">人工接管提醒</h3>
-            <p className="mt-1 text-sm text-slate-500">这些异常已经转给人工，工作台要明确告诉今天最该接哪几条。</p>
-          </div>
-          <Link href="/ops/exceptions">
-            <Button type="button" variant="secondary">
-              打开异常中心
-            </Button>
-          </Link>
-        </div>
-
-        <div className="mt-5 space-y-3">
-          {data.manualExceptions.length === 0 ? (
-            <p className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-500">当前没有人工接管中的异常。</p>
-          ) : (
-            data.manualExceptions.map((item) => (
-              <div key={item.id} className="rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge tone="warning">人工处理中</Badge>
-                      <p className="font-medium text-slate-900">{item.exceptionType}</p>
-                    </div>
-                    <p className="mt-2 text-sm text-slate-700">{item.message}</p>
-                    <p className="mt-1 text-sm text-slate-500">
-                      负责人：{item.resolvedBy?.name ?? "待分配"} · 最近更新时间：{formatDateTime(item.updatedAt)}
-                    </p>
-                  </div>
-                  <Link href={item.href}>
-                    <Button type="button" variant="secondary">
-                      {item.label}
-                    </Button>
-                  </Link>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </Card>
+      <DashboardManualExceptionsPanel items={data.manualExceptions} currentUserId={currentUser.id} />
 
       <Card>
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -453,7 +429,7 @@ export default async function DashboardPage() {
                       <Badge tone={failure.tone}>{failure.label}</Badge>
                     </div>
                     <p className="text-xs text-slate-500">
-                      {failure.module} · {formatDateTime(failure.createdAt)}
+                      {failure.module} 路 {formatDateTime(failure.createdAt)}
                     </p>
                     <p className="text-sm leading-6 text-rose-800">{failure.message}</p>
                   </div>

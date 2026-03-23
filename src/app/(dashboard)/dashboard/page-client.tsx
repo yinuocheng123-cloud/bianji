@@ -10,11 +10,14 @@
  *   第三部分：三步卡片与异常面板渲染
  */
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { formatDateTime } from "@/lib/utils";
 
 type ControlStatus = {
   running: boolean;
@@ -45,6 +48,18 @@ type ApiResult<T> = {
   success: boolean;
   data?: T;
   message?: string;
+};
+
+type ManualExceptionItem = {
+  id: string;
+  exceptionType: string;
+  message: string;
+  updatedAt: string | Date;
+  resolvedBy: { name: string | null } | null;
+  resolvedById: string | null;
+  href: string;
+  label: string;
+  note: string;
 };
 
 export function DashboardControlPanel({ initialStatus }: { initialStatus: ControlStatus }) {
@@ -231,5 +246,78 @@ export function DashboardControlPanel({ initialStatus }: { initialStatus: Contro
         </div>
       </Card>
     </div>
+  );
+}
+
+export function DashboardManualExceptionsPanel({
+  items,
+  currentUserId,
+}: {
+  items: ManualExceptionItem[];
+  currentUserId: string;
+}) {
+  const [onlyMine, setOnlyMine] = useState(true);
+
+  const visibleItems = (onlyMine
+    ? items.filter((item) => item.resolvedById === currentUserId)
+    : items) satisfies ManualExceptionItem[];
+
+  return (
+    <Card>
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h3 className="text-lg font-semibold text-slate-900">人工接管提醒</h3>
+          <p className="mt-1 text-sm text-slate-500">先把人工接管中的异常集中看清，再从最短入口进入处理。</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 text-sm text-slate-600">
+            <input
+              type="checkbox"
+              checked={onlyMine}
+              onChange={(event) => setOnlyMine(event.target.checked)}
+            />
+            只看我的
+          </label>
+          <Link href="/ops/exceptions">
+            <Button type="button" variant="secondary">
+              打开异常中心
+            </Button>
+          </Link>
+        </div>
+      </div>
+
+      <div className="mt-5 space-y-3">
+        {visibleItems.length === 0 ? (
+          <p className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-500">
+            {onlyMine ? "当前没有分配给你的人工接管异常。" : "当前没有人工接管中的异常。"}
+          </p>
+        ) : (
+          visibleItems.map((item) => (
+            <div key={item.id} className="rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge tone="warning">人工处理中</Badge>
+                    <p className="font-medium text-slate-900">{item.exceptionType}</p>
+                  </div>
+                  <p className="mt-2 text-sm text-slate-700">{item.message}</p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    负责人：{item.resolvedBy?.name ?? "待分配"} 路 最近更新时间：{formatDateTime(item.updatedAt)}
+                  </p>
+                  {item.note ? (
+                    <p className="mt-2 rounded-xl bg-white/80 px-3 py-2 text-sm text-slate-600">处理说明：{item.note}</p>
+                  ) : null}
+                </div>
+                <Link href={item.href}>
+                  <Button type="button" variant="secondary">
+                    {item.label}
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </Card>
   );
 }
