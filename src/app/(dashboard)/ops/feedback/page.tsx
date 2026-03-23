@@ -45,6 +45,15 @@ type SourceQualityRow = {
   qualityScore: number;
 };
 
+type CompanyReviewSummary = {
+  total: number;
+  pending: number;
+  approved: number;
+  rejected: number;
+  approvalRate: number;
+  rejectRate: number;
+};
+
 function humanizeManualTag(tag: ManualResolutionTag | string) {
   if (tag === "FIXED_DATA") return "补数据后解决";
   if (tag === "FIXED_RULE") return "修规则后解决";
@@ -145,7 +154,14 @@ export default async function OpsFeedbackPage() {
     async () => {
       const since = subDays(new Date(), 7);
 
-      const [reviewSummary, rejectedReviews, recentReviews, resolvedManualExceptions, sourceItems] = await Promise.all([
+      const [
+        reviewSummary,
+        rejectedReviews,
+        recentReviews,
+        resolvedManualExceptions,
+        sourceItems,
+        companyReviewItems,
+      ] = await Promise.all([
         db.reviewAction.groupBy({
           by: ["decision"],
           _count: { _all: true },
@@ -186,6 +202,24 @@ export default async function OpsFeedbackPage() {
             source: true,
             status: true,
           },
+        }),
+        db.companyProfile.findMany({
+          where: {
+            submissionSource: {
+              in: ["AI_DISCOVERY", "SEARCH_DISCOVERY"],
+            },
+          },
+          select: {
+            id: true,
+            companyName: true,
+            reviewStatus: true,
+            reviewNotes: true,
+            updatedAt: true,
+            officialWebsite: true,
+            submissionSource: true,
+          },
+          orderBy: { updatedAt: "desc" },
+          take: 60,
         }),
       ]);
 
@@ -293,6 +327,38 @@ export default async function OpsFeedbackPage() {
       }
 
       const sourceQuality = summarizeSourceQuality(sourceItems);
+      const companyReviewSummary = companyReviewItems.reduce<CompanyReviewSummary>(
+        (summary, item) => {
+          summary.total += 1;
+          if (item.reviewStatus === "PENDING") {
+            summary.pending += 1;
+          } else if (item.reviewStatus === "APPROVED") {
+            summary.approved += 1;
+          } else if (item.reviewStatus === "REJECTED") {
+            summary.rejected += 1;
+          }
+
+          return summary;
+        },
+        {
+          total: 0,
+          pending: 0,
+          approved: 0,
+          rejected: 0,
+          approvalRate: 0,
+          rejectRate: 0,
+        },
+      );
+
+      const decidedCompanyReviewCount = companyReviewSummary.approved + companyReviewSummary.rejected;
+      companyReviewSummary.approvalRate =
+        decidedCompanyReviewCount === 0
+          ? 0
+          : Math.round((companyReviewSummary.approved / decidedCompanyReviewCount) * 100);
+      companyReviewSummary.rejectRate =
+        decidedCompanyReviewCount === 0
+          ? 0
+          : Math.round((companyReviewSummary.rejected / decidedCompanyReviewCount) * 100);
 
       return {
         totalReviewCount,
@@ -323,6 +389,8 @@ export default async function OpsFeedbackPage() {
         lowSources: [...sourceQuality]
           .sort((a, b) => a.qualityScore - b.qualityScore || b.rejected - a.rejected)
           .slice(0, 5),
+        companyReviewSummary,
+        recentCompanyReviews: companyReviewItems.slice(0, 8),
       };
     },
     {
@@ -358,6 +426,23 @@ export default async function OpsFeedbackPage() {
       trend: buildTrend(7) as FeedbackTrendRow[],
       topSources: [] as SourceQualityRow[],
       lowSources: [] as SourceQualityRow[],
+      companyReviewSummary: {
+        total: 0,
+        pending: 0,
+        approved: 0,
+        rejected: 0,
+        approvalRate: 0,
+        rejectRate: 0,
+      } satisfies CompanyReviewSummary,
+      recentCompanyReviews: [] as {
+        id: string;
+        companyName: string;
+        reviewStatus: "PENDING" | "APPROVED" | "REJECTED";
+        reviewNotes: string | null;
+        updatedAt: Date;
+        officialWebsite: string | null;
+        submissionSource: string | null;
+      }[],
     },
   );
 
@@ -402,6 +487,29 @@ export default async function OpsFeedbackPage() {
           title="审核总动作数"
           value={data.totalReviewCount}
           description="后续会继续接入字段改动频率、模板表现与来源质量。"
+        />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          title="AI 企业待审核"
+          value={data.companyReviewSummary.pending}
+          description={`当前 AI 企业资料总提交 ${data.companyReviewSummary.total} 条`}
+        />
+        <StatCard
+          title="AI 企业已通过"
+          value={data.companyReviewSummary.approved}
+          description={`人工通过率 ${data.companyReviewSummary.approvalRate}%`}
+        />
+        <StatCard
+          title="AI 企业已驳回"
+          value={data.companyReviewSummary.rejected}
+          description={`人工驳回率 ${data.companyReviewSummary.rejectRate}%`}
+        />
+        <StatCard
+          title="AI 企业已判定"
+          value={data.companyReviewSummary.approved + data.companyReviewSummary.rejected}
+          description="只统计已经进入人工通过或驳回状态的企业资料。"
         />
       </div>
 
@@ -512,6 +620,66 @@ export default async function OpsFeedbackPage() {
       </div>
 
       <div className="grid gap-6 xl:grid-cols-2">
+        <Card>
+          <h2 className="text-lg font-semibold text-slate-900">AI 企业资料审核结果</h2>
+          <p className="mt-1 text-sm text-slate-500">这部分专门看 AI 自动提交的企业资料进入人工审核后的结果，后续会继续反哺企业检索模板与来源规则。</p>
+
+          <div className="mt-5 space-y-3">
+            {data.recentCompanyReviews.length === 0 ? (
+              <p className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-500">当前还没有 AI 企业资料审核样本。</p>
+            ) : (
+              data.recentCompanyReviews.map((item) => (
+                <div key={item.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium text-slate-900">{item.companyName}</p>
+                      <Badge
+                        tone={
+                          item.reviewStatus === "APPROVED"
+                            ? "success"
+                            : item.reviewStatus === "REJECTED"
+                              ? "danger"
+                              : "warning"
+                        }
+                      >
+                        {item.reviewStatus === "APPROVED"
+                          ? "已通过"
+                          : item.reviewStatus === "REJECTED"
+                            ? "已驳回"
+                            : "待审核"}
+                      </Badge>
+                      <Badge tone="info">
+                        {item.submissionSource === "AI_DISCOVERY" ? "真实 AI 提交" : "检索兜底提交"}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-slate-500">{formatDateTime(item.updatedAt)}</p>
+                  </div>
+                  <p className="mt-2 text-sm text-slate-600">{item.reviewNotes ?? "暂无审核说明"}</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {item.officialWebsite ? (
+                      <a
+                        className="text-sm text-[#1f4b3f] underline-offset-2 hover:underline"
+                        href={item.officialWebsite}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        官网：{item.officialWebsite}
+                      </a>
+                    ) : (
+                      <span className="text-sm text-slate-500">官网待确认</span>
+                    )}
+                    <Link href="/companies">
+                      <Button type="button" variant="secondary">
+                        去企业资料页
+                      </Button>
+                    </Link>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
+
         <Card>
           <h2 className="text-lg font-semibold text-slate-900">高质量来源排行</h2>
           <p className="mt-1 text-sm text-slate-500">先用通过、待审核和归档/驳回情况做轻量评分，帮助后续调整来源优先级。</p>

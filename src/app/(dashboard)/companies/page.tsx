@@ -6,10 +6,24 @@ import { withFallback } from "@/lib/safe-data";
 import { CompaniesManager } from "./page-client";
 
 export default async function CompaniesPage() {
+  const aiResearchEnabled = Boolean(process.env.OPENAI_API_KEY?.trim());
+
   const companies = await withFallback(
     () =>
       db.companyProfile.findMany({
-        include: { sourceRecords: true, candidateSites: true },
+        include: {
+          sourceRecords: true,
+          candidateSites: {
+            select: {
+              id: true,
+              name: true,
+              baseUrl: true,
+              reviewStatus: true,
+              reviewNotes: true,
+              reviewEvidence: true,
+            },
+          },
+        },
         orderBy: [{ reviewStatus: "asc" }, { updatedAt: "desc" }],
       }),
     [],
@@ -18,7 +32,7 @@ export default async function CompaniesPage() {
   return (
     <div className="space-y-6">
       <PageHeader title="企业资料库" description={moduleDescriptions.companies} />
-      <CompaniesManager items={companies} />
+      <CompaniesManager items={companies} aiResearchEnabled={aiResearchEnabled} />
     </div>
   );
 }

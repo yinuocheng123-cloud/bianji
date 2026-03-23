@@ -10,7 +10,7 @@
  *   第三部分：列表与表单渲染
  */
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Badge } from "@/components/ui/badge";
@@ -44,7 +44,14 @@ type CompanyRow = {
   honors: string[];
   people: unknown;
   sourceRecords: SourceRecordRow[];
-  candidateSites: Array<{ id: string }>;
+  candidateSites: Array<{
+    id: string;
+    name: string;
+    baseUrl: string;
+    reviewStatus: "PENDING" | "APPROVED" | "REJECTED";
+    reviewNotes: string | null;
+    reviewEvidence: unknown;
+  }>;
 };
 
 type CompanyForm = {
@@ -98,7 +105,34 @@ function peopleToText(value: unknown) {
   return "";
 }
 
-export function CompaniesManager({ items }: { items: CompanyRow[] }) {
+function extractEvidencePreview(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {
+      reason: "暂无官网证据说明",
+      sourceUrl: "",
+      mode: "",
+      confidence: "",
+      summary: "",
+    };
+  }
+
+  const record = value as Record<string, unknown>;
+  return {
+    reason: typeof record.reason === "string" ? record.reason : "暂无官网证据说明",
+    sourceUrl: typeof record.sourceUrl === "string" ? record.sourceUrl : "",
+    mode: typeof record.mode === "string" ? record.mode : "",
+    confidence: typeof record.confidence === "string" ? record.confidence : "",
+    summary: typeof record.summary === "string" ? record.summary : "",
+  };
+}
+
+export function CompaniesManager({
+  items,
+  aiResearchEnabled,
+}: {
+  items: CompanyRow[];
+  aiResearchEnabled: boolean;
+}) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [editingId, setEditingId] = useState("");
@@ -106,6 +140,8 @@ export function CompaniesManager({ items }: { items: CompanyRow[] }) {
   const [discoverQuery, setDiscoverQuery] = useState("");
   const [discoverWebsiteHint, setDiscoverWebsiteHint] = useState("");
   const [reviewFilter, setReviewFilter] = useState<"ALL" | "PENDING" | "APPROVED" | "REJECTED">("ALL");
+  const [previewSourcesForId, setPreviewSourcesForId] = useState("");
+  const [previewEvidenceForId, setPreviewEvidenceForId] = useState("");
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState("可以维护企业、品牌、产品优势和来源记录。");
 
@@ -300,7 +336,10 @@ export function CompaniesManager({ items }: { items: CompanyRow[] }) {
           <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h4 className="text-sm font-semibold text-slate-900">AI 自动检索企业资料</h4>
-              <p className="mt-1 text-sm text-slate-500">自动检索公开网页、整理企业资料和官网候选，并直接提交给编辑或管理员审核。</p>
+              <p className="mt-1 text-sm text-slate-500">
+                自动检索公开网页、整理企业资料和官网候选，并直接提交给编辑或管理员审核。
+                当前模式：{aiResearchEnabled ? "真实 AI 检索已启用" : "未配置 OPENAI_API_KEY，当前为检索兜底模式"}。
+              </p>
             </div>
             <div className="flex flex-col gap-2 lg:w-[460px] lg:flex-row">
               <Input
@@ -363,51 +402,133 @@ export function CompaniesManager({ items }: { items: CompanyRow[] }) {
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
               {filteredItems.map((item) => (
-                <tr key={item.id}>
-                  <td className="px-5 py-4">
-                    <p className="font-medium text-slate-900">{item.companyName}</p>
-                    <p className="mt-1 text-xs text-slate-500">{item.brandName ?? "未设置品牌名"}</p>
-                    <p className="mt-1 text-xs text-slate-400">{item.submissionSource === "AI_DISCOVERY" ? "AI 检索提交" : item.submissionSource === "SEARCH_DISCOVERY" ? "检索兜底提交" : "人工维护"}</p>
-                  </td>
-                  <td className="px-5 py-4">
-                    <div className="space-y-2">
-                      <Badge tone={getReviewTone(item.reviewStatus)}>{reviewStatusLabels[item.reviewStatus]}</Badge>
-                      <p className="text-xs text-slate-500">{item.reviewNotes ?? "暂无审核说明"}</p>
-                    </div>
-                  </td>
-                  <td className="px-5 py-4 text-slate-600">{item.region ?? "未设置"}</td>
-                  <td className="px-5 py-4 text-slate-600">{item.positioning ?? "未设置"}</td>
-                  <td className="px-5 py-4 text-slate-600">
-                    {item.officialWebsite ? (
-                      <a className="break-all text-[#1f4b3f] underline-offset-2 hover:underline" href={item.officialWebsite} target="_blank" rel="noreferrer">
-                        {item.officialWebsite}
-                      </a>
-                    ) : (
-                      "待确认"
-                    )}
-                  </td>
-                  <td className="px-5 py-4 text-slate-600">{item.mainProducts.join("、") || "暂无"}</td>
-                  <td className="px-5 py-4 text-slate-600">
-                    <p>来源 {item.sourceRecords.length} 条</p>
-                    <p className="mt-1 text-xs text-slate-500">官网候选 {item.candidateSites.length} 个</p>
-                  </td>
-                  <td className="px-5 py-4">
-                    <div className="flex flex-wrap gap-2">
-                      <Button type="button" variant="secondary" className="h-9" onClick={() => beginEdit(item)}>编辑</Button>
-                      {item.reviewStatus === "PENDING" ? (
-                        <>
-                          <Button type="button" className="h-9" onClick={() => reviewCompany(item, "approve")} disabled={loading}>
-                            通过
-                          </Button>
-                          <Button type="button" variant="ghost" className="h-9 text-rose-600" onClick={() => reviewCompany(item, "reject")} disabled={loading}>
-                            驳回
-                          </Button>
-                        </>
-                      ) : null}
-                      <Button type="button" variant="ghost" className="h-9" onClick={() => remove(item.id, item.companyName)} disabled={loading}>删除</Button>
-                    </div>
-                  </td>
-                </tr>
+                <Fragment key={item.id}>
+                  <tr key={item.id}>
+                    <td className="px-5 py-4">
+                      <p className="font-medium text-slate-900">{item.companyName}</p>
+                      <p className="mt-1 text-xs text-slate-500">{item.brandName ?? "未设置品牌名"}</p>
+                      <p className="mt-1 text-xs text-slate-400">{item.submissionSource === "AI_DISCOVERY" ? "AI 检索提交" : item.submissionSource === "SEARCH_DISCOVERY" ? "检索兜底提交" : "人工维护"}</p>
+                    </td>
+                    <td className="px-5 py-4">
+                      <div className="space-y-2">
+                        <Badge tone={getReviewTone(item.reviewStatus)}>{reviewStatusLabels[item.reviewStatus]}</Badge>
+                        <p className="text-xs text-slate-500">{item.reviewNotes ?? "暂无审核说明"}</p>
+                      </div>
+                    </td>
+                    <td className="px-5 py-4 text-slate-600">{item.region ?? "未设置"}</td>
+                    <td className="px-5 py-4 text-slate-600">{item.positioning ?? "未设置"}</td>
+                    <td className="px-5 py-4 text-slate-600">
+                      {item.officialWebsite ? (
+                        <a className="break-all text-[#1f4b3f] underline-offset-2 hover:underline" href={item.officialWebsite} target="_blank" rel="noreferrer">
+                          {item.officialWebsite}
+                        </a>
+                      ) : (
+                        "待确认"
+                      )}
+                    </td>
+                    <td className="px-5 py-4 text-slate-600">{item.mainProducts.join("、") || "暂无"}</td>
+                    <td className="px-5 py-4 text-slate-600">
+                      <p>来源 {item.sourceRecords.length} 条</p>
+                      <p className="mt-1 text-xs text-slate-500">官网候选 {item.candidateSites.length} 个</p>
+                    </td>
+                    <td className="px-5 py-4">
+                      <div className="flex flex-wrap gap-2">
+                        <Button type="button" variant="secondary" className="h-9" onClick={() => beginEdit(item)}>编辑</Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="h-9"
+                          onClick={() =>
+                            setPreviewSourcesForId((current) => (current === item.id ? "" : item.id))
+                          }
+                        >
+                          {previewSourcesForId === item.id ? "收起来源" : "来源预览"}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="h-9"
+                          onClick={() =>
+                            setPreviewEvidenceForId((current) => (current === item.id ? "" : item.id))
+                          }
+                        >
+                          {previewEvidenceForId === item.id ? "收起证据" : "官网证据"}
+                        </Button>
+                        {item.reviewStatus === "PENDING" ? (
+                          <>
+                            <Button type="button" className="h-9" onClick={() => reviewCompany(item, "approve")} disabled={loading}>
+                              通过
+                            </Button>
+                            <Button type="button" variant="ghost" className="h-9 text-rose-600" onClick={() => reviewCompany(item, "reject")} disabled={loading}>
+                              驳回
+                            </Button>
+                          </>
+                        ) : null}
+                        <Button type="button" variant="ghost" className="h-9" onClick={() => remove(item.id, item.companyName)} disabled={loading}>删除</Button>
+                      </div>
+                    </td>
+                  </tr>
+                  {previewSourcesForId === item.id ? (
+                    <tr>
+                      <td colSpan={8} className="bg-slate-50 px-5 py-4">
+                        <div className="space-y-3">
+                          <p className="text-sm font-medium text-slate-900">来源预览</p>
+                          {item.sourceRecords.length === 0 ? (
+                            <p className="text-sm text-slate-500">当前没有来源记录。</p>
+                          ) : (
+                            item.sourceRecords.map((record) => (
+                              <div key={record.id} className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                                <p className="text-sm font-medium text-slate-900">{record.sourceTitle ?? "未命名来源"}</p>
+                                <a className="mt-1 block break-all text-sm text-[#1f4b3f] underline-offset-2 hover:underline" href={record.sourceUrl} target="_blank" rel="noreferrer">
+                                  {record.sourceUrl}
+                                </a>
+                                <p className="mt-2 text-xs text-slate-500">{record.note ?? "暂无来源备注"}</p>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ) : null}
+                  {previewEvidenceForId === item.id ? (
+                    <tr>
+                      <td colSpan={8} className="bg-slate-50 px-5 py-4">
+                        <div className="space-y-3">
+                          <p className="text-sm font-medium text-slate-900">官网证据预览</p>
+                          {item.candidateSites.length === 0 ? (
+                            <p className="text-sm text-slate-500">当前没有官网候选证据。</p>
+                          ) : (
+                            item.candidateSites.map((site) => {
+                              const evidence = extractEvidencePreview(site.reviewEvidence);
+
+                              return (
+                                <div key={site.id} className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <p className="text-sm font-medium text-slate-900">{site.name}</p>
+                                    <Badge tone={getReviewTone(site.reviewStatus)}>{reviewStatusLabels[site.reviewStatus]}</Badge>
+                                    {evidence.mode ? <Badge tone="info">{evidence.mode === "ai" ? "真实 AI" : "检索兜底"}</Badge> : null}
+                                    {evidence.confidence ? <Badge tone="neutral">置信度 {evidence.confidence}</Badge> : null}
+                                  </div>
+                                  <a className="mt-2 block break-all text-sm text-[#1f4b3f] underline-offset-2 hover:underline" href={site.baseUrl} target="_blank" rel="noreferrer">
+                                    {site.baseUrl}
+                                  </a>
+                                  <p className="mt-2 text-sm text-slate-600">{evidence.reason}</p>
+                                  {evidence.summary ? <p className="mt-1 text-xs text-slate-500">{evidence.summary}</p> : null}
+                                  {evidence.sourceUrl ? (
+                                    <a className="mt-2 block break-all text-xs text-slate-500 underline-offset-2 hover:underline" href={evidence.sourceUrl} target="_blank" rel="noreferrer">
+                                      证据来源：{evidence.sourceUrl}
+                                    </a>
+                                  ) : null}
+                                  <p className="mt-1 text-xs text-slate-400">审核说明：{site.reviewNotes ?? "暂无审核说明"}</p>
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ) : null}
+                </Fragment>
               ))}
             </tbody>
           </table>

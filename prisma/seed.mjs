@@ -251,6 +251,58 @@ async function main() {
     },
   });
 
+  await prisma.companyProfile.upsert({
+    where: { id: "seed-company-003" },
+    update: {
+      reviewStatus: ReviewStatus.APPROVED,
+      reviewNotes: "企业官网和主营产品已核实，允许进入正式资料库。",
+      submissionSource: "AI_DISCOVERY",
+      officialWebsite: "https://approved-example.com",
+    },
+    create: {
+      id: "seed-company-003",
+      companyName: "已通过整木资料样本有限公司",
+      brandName: "通过样本整木",
+      region: "上海",
+      description: "用于学习反馈中心展示 AI 企业资料已通过样本。",
+      positioning: "高端整木空间解决方案品牌。",
+      officialWebsite: "https://approved-example.com",
+      reviewStatus: ReviewStatus.APPROVED,
+      reviewNotes: "企业官网和主营产品已核实，允许进入正式资料库。",
+      submissionSource: "AI_DISCOVERY",
+      mainProducts: ["整木定制", "柜体系统"],
+      advantages: ["信息完整", "来源清晰"],
+      honors: ["待补更多荣誉"],
+      people: ["品牌负责人已识别"],
+    },
+  });
+
+  await prisma.companyProfile.upsert({
+    where: { id: "seed-company-004" },
+    update: {
+      reviewStatus: ReviewStatus.REJECTED,
+      reviewNotes: "来源不足且官网证据不清，需要重新检索。",
+      submissionSource: "SEARCH_DISCOVERY",
+      officialWebsite: null,
+    },
+    create: {
+      id: "seed-company-004",
+      companyName: "已驳回整木资料样本有限公司",
+      brandName: "驳回样本整木",
+      region: "江苏",
+      description: "用于学习反馈中心展示 AI 企业资料已驳回样本。",
+      positioning: "待确认",
+      officialWebsite: null,
+      reviewStatus: ReviewStatus.REJECTED,
+      reviewNotes: "来源不足且官网证据不清，需要重新检索。",
+      submissionSource: "SEARCH_DISCOVERY",
+      mainProducts: ["待确认"],
+      advantages: [],
+      honors: [],
+      people: [],
+    },
+  });
+
   await prisma.site.upsert({
     where: { baseUrl: "https://pending-example.com" },
     update: {
