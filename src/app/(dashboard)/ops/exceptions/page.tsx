@@ -56,6 +56,24 @@ function getManualResolutionNote(detailJson: unknown) {
     : "";
 }
 
+function getManualResolutionTag(detailJson: unknown) {
+  if (!detailJson || typeof detailJson !== "object" || Array.isArray(detailJson)) {
+    return "";
+  }
+
+  return typeof (detailJson as Record<string, unknown>).manualResolutionTag === "string"
+    ? ((detailJson as Record<string, unknown>).manualResolutionTag as string)
+    : "";
+}
+
+function humanizeManualResolutionTag(tag: string) {
+  if (tag === "FIXED_DATA") return "已补数据";
+  if (tag === "FIXED_RULE") return "已修规则";
+  if (tag === "HANDLED_MANUALLY") return "已人工处理";
+  if (tag === "IGNORED_AFTER_CHECK") return "核查后忽略";
+  return tag ? "其他结果" : "";
+}
+
 function getExceptionTargetLink(item: {
   relatedType: string;
   relatedId: string | null;
@@ -147,6 +165,7 @@ export default async function OpsExceptionsPage() {
           .map((item) => ({
             ...item,
             note: getManualResolutionNote(item.detailJson),
+            resultTag: humanizeManualResolutionTag(getManualResolutionTag(item.detailJson)),
             link: getExceptionTargetLink(item),
           }))
           .filter((item) => item.note || item.resolvedAt)
@@ -185,6 +204,7 @@ export default async function OpsExceptionsPage() {
         message: string;
         resolvedAt: Date | null;
         note: string;
+        resultTag: string;
         link: { href: string; label: string };
         resolvedBy: { name: string | null } | null;
       }[],
@@ -308,6 +328,7 @@ export default async function OpsExceptionsPage() {
             data.manualExceptions.map((item) => {
               const meta = explainException(item.exceptionType);
               const note = getManualResolutionNote(item.detailJson);
+              const resultTag = humanizeManualResolutionTag(getManualResolutionTag(item.detailJson));
 
               return (
                 <div key={item.id} className="rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-4">
@@ -322,6 +343,11 @@ export default async function OpsExceptionsPage() {
                         负责人：{item.resolvedBy?.name ?? "待分配"} 路 最近更新时间：{formatDateTime(item.updatedAt)}
                       </p>
                       <p className="mt-1 text-sm text-slate-500">建议下一步：{meta.suggestion}</p>
+                      {resultTag ? (
+                        <div className="mt-2">
+                          <Badge tone="info">{resultTag}</Badge>
+                        </div>
+                      ) : null}
                       {note ? (
                         <p className="mt-2 rounded-xl bg-white/80 px-3 py-2 text-sm text-slate-600">处理中说明：{note}</p>
                       ) : null}
@@ -355,11 +381,12 @@ export default async function OpsExceptionsPage() {
             data.recentlyCompletedManual.map((item) => (
               <div key={item.id} className="rounded-2xl border border-emerald-200 bg-emerald-50/70 px-4 py-4">
                 <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge tone="success">人工已完成</Badge>
-                      <p className="font-medium text-slate-900">{explainException(item.exceptionType).type}</p>
-                    </div>
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge tone="success">人工已完成</Badge>
+                        {item.resultTag ? <Badge tone="info">{item.resultTag}</Badge> : null}
+                        <p className="font-medium text-slate-900">{explainException(item.exceptionType).type}</p>
+                      </div>
                     <p className="mt-2 text-sm text-slate-700">{item.message}</p>
                     <p className="mt-1 text-sm text-slate-500">
                       处理人：{item.resolvedBy?.name ?? "未记录"} 路 完成时间：{item.resolvedAt ? formatDateTime(item.resolvedAt) : "未记录"}

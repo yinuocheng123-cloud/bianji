@@ -115,20 +115,58 @@ function getManualPriority(item: {
   resolvedById: string | null;
 }) {
   const ageHours = Math.floor((Date.now() - item.updatedAt.getTime()) / (1000 * 60 * 60));
+  const reasons: string[] = [];
+  let score = 0;
+
+  if (item.resolvedById) {
+    score += 8;
+    reasons.push("已明确分配负责人");
+  } else {
+    score += 3;
+    reasons.push("尚未分配负责人");
+  }
 
   if (
     item.exceptionType.includes("AI_DRAFT") ||
     item.exceptionType.includes("CRAWL") ||
     item.exceptionType.includes("RULE_CONFLICT")
   ) {
-    return { priority: "high" as const, priorityLabel: "优先处理", priorityReason: "涉及核心自动链路，继续积压会影响当天处理节奏。" };
+    score += 40;
+    reasons.push("涉及核心自动链路");
   }
 
-  if (item.relatedType === "task" || (item.resolvedById && ageHours >= 24)) {
-    return { priority: "medium" as const, priorityLabel: "建议今天处理", priorityReason: "已进入人工接管且存在时效压力，建议在今天内收口。" };
+  if (item.relatedType === "task") {
+    score += 18;
+    reasons.push("直接关联任务执行");
   }
 
-  return { priority: "low" as const, priorityLabel: "可排队处理", priorityReason: "当前影响面较小，可与其他人工任务一起排队处理。" };
+  if (ageHours >= 48) {
+    score += 24;
+    reasons.push("积压超过 48 小时");
+  } else if (ageHours >= 24) {
+    score += 16;
+    reasons.push("积压超过 24 小时");
+  } else if (ageHours >= 8) {
+    score += 8;
+    reasons.push("已积压半天以上");
+  }
+
+  let priority: "high" | "medium" | "low" = "low";
+  let priorityLabel = "可排队处理";
+  if (score >= 55) {
+    priority = "high";
+    priorityLabel = "优先处理";
+  } else if (score >= 28) {
+    priority = "medium";
+    priorityLabel = "建议今天处理";
+  }
+
+  return {
+    priority,
+    priorityLabel,
+    priorityScore: score,
+    priorityReason: reasons.join("，"),
+  };
 }
 
 export default async function DashboardPage() {
@@ -348,6 +386,7 @@ export default async function DashboardPage() {
         exceptionType: string;
         priority: "high" | "medium" | "low";
         priorityLabel: string;
+        priorityScore: number;
         priorityReason: string;
         message: string;
         updatedAt: Date;

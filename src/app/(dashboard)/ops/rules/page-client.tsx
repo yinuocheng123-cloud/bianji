@@ -98,26 +98,66 @@ function humanizeField(field: string) {
   return field;
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function flattenJsonPaths(value: unknown, currentPath = ""): Record<string, string> {
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return currentPath ? { [currentPath]: "[]" } : {};
+    }
+
+    return value.reduce<Record<string, string>>((accumulator, item, index) => {
+      const childPath = currentPath ? `${currentPath}[${index}]` : `[${index}]`;
+      Object.assign(accumulator, flattenJsonPaths(item, childPath));
+      return accumulator;
+    }, {});
+  }
+
+  if (isPlainRecord(value)) {
+    const keys = Object.keys(value);
+    if (keys.length === 0) {
+      return currentPath ? { [currentPath]: "{}" } : {};
+    }
+
+    return keys.reduce<Record<string, string>>((accumulator, key) => {
+      const childPath = currentPath ? `${currentPath}.${key}` : key;
+      Object.assign(accumulator, flattenJsonPaths(value[key], childPath));
+      return accumulator;
+    }, {});
+  }
+
+  if (!currentPath) {
+    return {};
+  }
+
+  return {
+    [currentPath]: value === null || value === undefined ? "空" : JSON.stringify(value),
+  };
+}
+
+function shortenJsonValue(value: string) {
+  return value.length > 40 ? `${value.slice(0, 40)}...` : value;
+}
+
 function getRuleContentKeyDiff(beforeValue: unknown, afterValue: unknown) {
-  const before =
-    beforeValue && typeof beforeValue === "object" && !Array.isArray(beforeValue)
-      ? (beforeValue as Record<string, unknown>)
-      : {};
-  const after =
-    afterValue && typeof afterValue === "object" && !Array.isArray(afterValue)
-      ? (afterValue as Record<string, unknown>)
-      : {};
+  const beforePaths = flattenJsonPaths(beforeValue);
+  const afterPaths = flattenJsonPaths(afterValue);
+  const beforeKeys = Object.keys(beforePaths);
+  const afterKeys = Object.keys(afterPaths);
 
-  const beforeKeys = Object.keys(before);
-  const afterKeys = Object.keys(after);
+  const addedKeys = afterKeys.filter((key) => !(key in beforePaths));
+  const removedKeys = beforeKeys.filter((key) => !(key in afterPaths));
+  const changedKeys = afterKeys.filter((key) => key in beforePaths && beforePaths[key] !== afterPaths[key]);
 
-  const addedKeys = afterKeys.filter((key) => !(key in before));
-  const removedKeys = beforeKeys.filter((key) => !(key in after));
-  const changedKeys = afterKeys.filter(
-    (key) => key in before && JSON.stringify(before[key]) !== JSON.stringify(after[key]),
-  );
-
-  return { addedKeys, removedKeys, changedKeys };
+  return {
+    addedKeys,
+    removedKeys,
+    changedKeys,
+    beforePaths,
+    afterPaths,
+  };
 }
 
 function humanizeValue(field: string, value: unknown) {
@@ -178,19 +218,34 @@ function humanizeValue(field: string, value: unknown) {
 }
 
 function summarizeRuleContentDiff(beforeValue: unknown, afterValue: unknown) {
-  const { addedKeys, removedKeys, changedKeys } = getRuleContentKeyDiff(beforeValue, afterValue);
+  const { addedKeys, removedKeys, changedKeys, beforePaths, afterPaths } = getRuleContentKeyDiff(beforeValue, afterValue);
   const parts: string[] = [];
 
   if (addedKeys.length > 0) {
-    parts.push(`新增键：${addedKeys.slice(0, 5).join("、")}${addedKeys.length > 5 ? " 等" : ""}`);
+    const addedPreview = addedKeys
+      .slice(0, 3)
+      .map((key) => `${key}=${shortenJsonValue(afterPaths[key] ?? "")}`)
+      .join("；");
+    parts.push(`新增：${addedPreview}${addedKeys.length > 3 ? " 等" : ""}`);
   }
 
   if (removedKeys.length > 0) {
-    parts.push(`删除键：${removedKeys.slice(0, 5).join("、")}${removedKeys.length > 5 ? " 等" : ""}`);
+    const removedPreview = removedKeys
+      .slice(0, 3)
+      .map((key) => `${key}=${shortenJsonValue(beforePaths[key] ?? "")}`)
+      .join("；");
+    parts.push(`删除：${removedPreview}${removedKeys.length > 3 ? " 等" : ""}`);
   }
 
   if (changedKeys.length > 0) {
-    parts.push(`变更键：${changedKeys.slice(0, 5).join("、")}${changedKeys.length > 5 ? " 等" : ""}`);
+    const changedPreview = changedKeys
+      .slice(0, 3)
+      .map(
+        (key) =>
+          `${key}: ${shortenJsonValue(beforePaths[key] ?? "")} -> ${shortenJsonValue(afterPaths[key] ?? "")}`,
+      )
+      .join("；");
+    parts.push(`变更：${changedPreview}${changedKeys.length > 3 ? " 等" : ""}`);
   }
 
   return parts.length > 0 ? parts.join("；") : "结构未发生明显变化";

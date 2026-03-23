@@ -55,6 +55,7 @@ type ManualExceptionItem = {
   exceptionType: string;
   priority: "high" | "medium" | "low";
   priorityLabel: string;
+  priorityScore: number;
   priorityReason: string;
   message: string;
   updatedAt: string | Date;
@@ -279,7 +280,6 @@ export function DashboardManualExceptionsPanel({
 
   const visibleItems = useMemo(() => {
     const selected = onlyMine ? items.filter((item) => item.resolvedById === currentUserId) : items;
-    const priorityRank = { high: 0, medium: 1, low: 2 } as const;
 
     return [...selected].sort((a, b) => {
       const mineRankA = a.resolvedById === currentUserId ? 0 : 1;
@@ -288,9 +288,9 @@ export function DashboardManualExceptionsPanel({
         return mineRankA - mineRankB;
       }
 
-      const priorityDiff = priorityRank[a.priority] - priorityRank[b.priority];
-      if (priorityDiff !== 0) {
-        return priorityDiff;
+      const scoreDiff = b.priorityScore - a.priorityScore;
+      if (scoreDiff !== 0) {
+        return scoreDiff;
       }
 
       return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
@@ -336,6 +336,7 @@ export function DashboardManualExceptionsPanel({
                     >
                       {item.priorityLabel}
                     </Badge>
+                    <Badge tone="info">评分 {item.priorityScore}</Badge>
                     <p className="font-medium text-slate-900">{item.exceptionType}</p>
                   </div>
                   <p className="mt-2 text-sm text-slate-700">{item.message}</p>
