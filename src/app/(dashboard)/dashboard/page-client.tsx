@@ -70,6 +70,7 @@ export function DashboardControlPanel({ initialStatus }: { initialStatus: Contro
   const [status, setStatus] = useState(initialStatus);
   const [loadingAction, setLoadingAction] = useState<"" | "start" | "stop" | "retry">("");
   const [feedback, setFeedback] = useState("系统已就绪，可以直接开始今天的工作。");
+  const workInProgress = loadingAction === "start" || status.running;
 
   async function refreshStatus() {
     const response = await fetch("/api/control/status", { cache: "no-store" });
@@ -147,7 +148,7 @@ export function DashboardControlPanel({ initialStatus }: { initialStatus: Contro
               status.running ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"
             }`}
           >
-            {status.running ? "运行中" : "已停止"}
+            {status.running ? "工作中" : "已停止"}
           </div>
         </div>
       </Card>
@@ -164,8 +165,23 @@ export function DashboardControlPanel({ initialStatus }: { initialStatus: Contro
             <p>待抽取：{status.pending.toExtract}</p>
             <p>待生成草稿：{status.pending.toDraft}</p>
           </div>
-          <Button className="mt-6 w-full" type="button" onClick={startWork} disabled={loadingAction !== ""}>
-            {loadingAction === "start" ? "启动中..." : status.running ? "继续推进工作" : "开始工作"}
+          <Button
+            className={`mt-6 w-full transition-all ${workInProgress ? "shadow-lg shadow-emerald-200/70" : ""}`}
+            type="button"
+            onClick={startWork}
+            disabled={loadingAction !== ""}
+          >
+            {workInProgress ? (
+              <span className="inline-flex items-center gap-2">
+                <span className="relative flex size-2.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white/70 opacity-75" />
+                  <span className="relative inline-flex size-2.5 rounded-full bg-white" />
+                </span>
+                <span className="animate-pulse">{loadingAction === "start" ? "启动中..." : "工作中"}</span>
+              </span>
+            ) : (
+              "开始工作"
+            )}
           </Button>
         </Card>
 
