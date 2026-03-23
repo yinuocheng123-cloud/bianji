@@ -56,6 +56,31 @@ function getManualResolutionNote(detailJson: unknown) {
     : "";
 }
 
+function getExceptionTargetLink(item: {
+  relatedType: string;
+  relatedId: string | null;
+  detailJson?: unknown;
+}) {
+  const detail =
+    item.detailJson && typeof item.detailJson === "object" && !Array.isArray(item.detailJson)
+      ? (item.detailJson as Record<string, unknown>)
+      : {};
+
+  if (typeof detail.contentItemId === "string" && detail.contentItemId) {
+    return { href: `/content-pool/${detail.contentItemId}`, label: "去内容工作区" };
+  }
+
+  if (item.relatedType === "task" && item.relatedId) {
+    return { href: `/ops/tasks/${item.relatedId}`, label: "看任务详情" };
+  }
+
+  if (item.relatedType === "contentItem" && item.relatedId) {
+    return { href: `/content-pool/${item.relatedId}`, label: "去内容工作区" };
+  }
+
+  return { href: "/ops/exceptions", label: "回异常中心" };
+}
+
 export const dynamic = "force-dynamic";
 
 export default async function OpsExceptionsPage() {
@@ -122,6 +147,7 @@ export default async function OpsExceptionsPage() {
           .map((item) => ({
             ...item,
             note: getManualResolutionNote(item.detailJson),
+            link: getExceptionTargetLink(item),
           }))
           .filter((item) => item.note || item.resolvedAt)
           .slice(0, 6),
@@ -159,6 +185,7 @@ export default async function OpsExceptionsPage() {
         message: string;
         resolvedAt: Date | null;
         note: string;
+        link: { href: string; label: string };
         resolvedBy: { name: string | null } | null;
       }[],
       missingFieldItems: [] as {
@@ -284,18 +311,29 @@ export default async function OpsExceptionsPage() {
 
               return (
                 <div key={item.id} className="rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-4">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-medium text-slate-900">{meta.type}</p>
-                    <Badge tone="warning">人工处理中</Badge>
+                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-medium text-slate-900">{meta.type}</p>
+                        <Badge tone="warning">人工处理中</Badge>
+                      </div>
+                      <p className="mt-2 text-sm text-slate-600">{item.message}</p>
+                      <p className="mt-1 text-sm text-slate-500">
+                        负责人：{item.resolvedBy?.name ?? "待分配"} 路 最近更新时间：{formatDateTime(item.updatedAt)}
+                      </p>
+                      <p className="mt-1 text-sm text-slate-500">建议下一步：{meta.suggestion}</p>
+                      {note ? (
+                        <p className="mt-2 rounded-xl bg-white/80 px-3 py-2 text-sm text-slate-600">处理中说明：{note}</p>
+                      ) : null}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Link href={getExceptionTargetLink(item).href}>
+                        <Button type="button" variant="secondary">
+                          {getExceptionTargetLink(item).label}
+                        </Button>
+                      </Link>
+                    </div>
                   </div>
-                  <p className="mt-2 text-sm text-slate-600">{item.message}</p>
-                  <p className="mt-1 text-sm text-slate-500">
-                    负责人：{item.resolvedBy?.name ?? "待分配"} 路 最近更新时间：{formatDateTime(item.updatedAt)}
-                  </p>
-                  <p className="mt-1 text-sm text-slate-500">建议下一步：{meta.suggestion}</p>
-                  {note ? (
-                    <p className="mt-2 rounded-xl bg-white/80 px-3 py-2 text-sm text-slate-600">处理中说明：{note}</p>
-                  ) : null}
                   <div className="mt-3">
                     <ExceptionActions exceptionId={item.id} canRetry={false} status={item.status} />
                   </div>
@@ -316,15 +354,24 @@ export default async function OpsExceptionsPage() {
           ) : (
             data.recentlyCompletedManual.map((item) => (
               <div key={item.id} className="rounded-2xl border border-emerald-200 bg-emerald-50/70 px-4 py-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge tone="success">人工已完成</Badge>
-                  <p className="font-medium text-slate-900">{explainException(item.exceptionType).type}</p>
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge tone="success">人工已完成</Badge>
+                      <p className="font-medium text-slate-900">{explainException(item.exceptionType).type}</p>
+                    </div>
+                    <p className="mt-2 text-sm text-slate-700">{item.message}</p>
+                    <p className="mt-1 text-sm text-slate-500">
+                      处理人：{item.resolvedBy?.name ?? "未记录"} 路 完成时间：{item.resolvedAt ? formatDateTime(item.resolvedAt) : "未记录"}
+                    </p>
+                    <p className="mt-2 rounded-xl bg-white/80 px-3 py-2 text-sm text-slate-600">处理说明：{item.note || "未填写"}</p>
+                  </div>
+                  <Link href={item.link.href}>
+                    <Button type="button" variant="secondary">
+                      {item.link.label}
+                    </Button>
+                  </Link>
                 </div>
-                <p className="mt-2 text-sm text-slate-700">{item.message}</p>
-                <p className="mt-1 text-sm text-slate-500">
-                  处理人：{item.resolvedBy?.name ?? "未记录"} 路 完成时间：{item.resolvedAt ? formatDateTime(item.resolvedAt) : "未记录"}
-                </p>
-                <p className="mt-2 rounded-xl bg-white/80 px-3 py-2 text-sm text-slate-600">处理说明：{item.note || "未填写"}</p>
               </div>
             ))
           )}

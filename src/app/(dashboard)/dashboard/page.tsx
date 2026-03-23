@@ -107,6 +107,30 @@ function getManualResolutionNote(detailJson: unknown) {
     : "";
 }
 
+function getManualPriority(item: {
+  exceptionType: string;
+  relatedType: string;
+  relatedId: string | null;
+  updatedAt: Date;
+  resolvedById: string | null;
+}) {
+  const ageHours = Math.floor((Date.now() - item.updatedAt.getTime()) / (1000 * 60 * 60));
+
+  if (
+    item.exceptionType.includes("AI_DRAFT") ||
+    item.exceptionType.includes("CRAWL") ||
+    item.exceptionType.includes("RULE_CONFLICT")
+  ) {
+    return { priority: "high" as const, priorityLabel: "优先处理", priorityReason: "涉及核心自动链路，继续积压会影响当天处理节奏。" };
+  }
+
+  if (item.relatedType === "task" || (item.resolvedById && ageHours >= 24)) {
+    return { priority: "medium" as const, priorityLabel: "建议今天处理", priorityReason: "已进入人工接管且存在时效压力，建议在今天内收口。" };
+  }
+
+  return { priority: "low" as const, priorityLabel: "可排队处理", priorityReason: "当前影响面较小，可与其他人工任务一起排队处理。" };
+}
+
 export default async function DashboardPage() {
   const currentUser = await requireSessionUser();
   const data = await withFallback(
@@ -257,17 +281,21 @@ export default async function DashboardPage() {
             href: draftId ? `/drafts/${draftId}` : meta.href,
           };
         }),
-        manualExceptions: manualExceptions.map((item) => ({
-          id: item.id,
-          exceptionType: item.exceptionType,
-          message: item.message,
-          updatedAt: item.updatedAt,
-          resolvedBy: item.resolvedBy,
-          resolvedById: item.resolvedById,
-          href: getManualExceptionLink(item).href,
-          label: getManualExceptionLink(item).label,
-          note: getManualResolutionNote(item.detailJson),
-        })),
+        manualExceptions: manualExceptions.map((item) => {
+          const link = getManualExceptionLink(item);
+          return {
+            id: item.id,
+            exceptionType: item.exceptionType,
+            message: item.message,
+            updatedAt: item.updatedAt,
+            resolvedBy: item.resolvedBy,
+            resolvedById: item.resolvedById,
+            href: link.href,
+            label: link.label,
+            note: getManualResolutionNote(item.detailJson),
+            ...getManualPriority(item),
+          };
+        }),
       };
     },
     {
@@ -318,6 +346,9 @@ export default async function DashboardPage() {
       manualExceptions: [] as {
         id: string;
         exceptionType: string;
+        priority: "high" | "medium" | "low";
+        priorityLabel: string;
+        priorityReason: string;
         message: string;
         updatedAt: Date;
         resolvedBy: { name: string | null } | null;

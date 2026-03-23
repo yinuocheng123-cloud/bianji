@@ -3,6 +3,12 @@
 /**
  * 文件说明：规则中心客户端管理面板。
  * 功能说明：提供规则的新建、编辑、启停，并展示更可读的规则变更日志。
+ *
+ * 结构概览：
+ *   第一部分：类型与常量
+ *   第二部分：日志解析与人话摘要
+ *   第三部分：规则表单与列表交互
+ *   第四部分：规则日志渲染
  */
 
 import { useMemo, useState } from "react";
@@ -92,6 +98,28 @@ function humanizeField(field: string) {
   return field;
 }
 
+function getRuleContentKeyDiff(beforeValue: unknown, afterValue: unknown) {
+  const before =
+    beforeValue && typeof beforeValue === "object" && !Array.isArray(beforeValue)
+      ? (beforeValue as Record<string, unknown>)
+      : {};
+  const after =
+    afterValue && typeof afterValue === "object" && !Array.isArray(afterValue)
+      ? (afterValue as Record<string, unknown>)
+      : {};
+
+  const beforeKeys = Object.keys(before);
+  const afterKeys = Object.keys(after);
+
+  const addedKeys = afterKeys.filter((key) => !(key in before));
+  const removedKeys = beforeKeys.filter((key) => !(key in after));
+  const changedKeys = afterKeys.filter(
+    (key) => key in before && JSON.stringify(before[key]) !== JSON.stringify(after[key]),
+  );
+
+  return { addedKeys, removedKeys, changedKeys };
+}
+
 function humanizeValue(field: string, value: unknown) {
   if (field === "ruleContentJson") {
     if (!value || typeof value !== "object") {
@@ -147,6 +175,25 @@ function humanizeValue(field: string, value: unknown) {
   }
 
   return JSON.stringify(value);
+}
+
+function summarizeRuleContentDiff(beforeValue: unknown, afterValue: unknown) {
+  const { addedKeys, removedKeys, changedKeys } = getRuleContentKeyDiff(beforeValue, afterValue);
+  const parts: string[] = [];
+
+  if (addedKeys.length > 0) {
+    parts.push(`新增键：${addedKeys.slice(0, 5).join("、")}${addedKeys.length > 5 ? " 等" : ""}`);
+  }
+
+  if (removedKeys.length > 0) {
+    parts.push(`删除键：${removedKeys.slice(0, 5).join("、")}${removedKeys.length > 5 ? " 等" : ""}`);
+  }
+
+  if (changedKeys.length > 0) {
+    parts.push(`变更键：${changedKeys.slice(0, 5).join("、")}${changedKeys.length > 5 ? " 等" : ""}`);
+  }
+
+  return parts.length > 0 ? parts.join("；") : "结构未发生明显变化";
 }
 
 function summarizeLog(log: RuleLogRow) {
@@ -408,7 +455,7 @@ export function RulesManager({ items, logs }: { items: RuleRow[]; logs: RuleLogR
       <Card className="space-y-4">
         <div>
           <h3 className="text-lg font-semibold text-slate-900">最近规则日志</h3>
-          <p className="mt-1 text-sm text-slate-500">规则日志要尽量说人话，直接告诉值班人员这次改了哪些关键字段，以及从什么改成了什么。</p>
+          <p className="mt-1 text-sm text-slate-500">规则日志要尽量说人话，直接告诉值班人员这次改了哪些关键字段，以及规则内容里哪些键发生了变化。</p>
         </div>
 
         <div className="space-y-3">
@@ -432,7 +479,7 @@ export function RulesManager({ items, logs }: { items: RuleRow[]; logs: RuleLogR
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge tone="info">{log.action}</Badge>
                     <p className="text-sm text-slate-500">
-                      操作人：{log.user?.name ?? "系统"} · 时间：{formatDateTime(log.createdAt)}
+                      操作人：{log.user?.name ?? "系统"} 路 时间：{formatDateTime(log.createdAt)}
                     </p>
                   </div>
                   <p className="mt-2 text-sm text-slate-700">{summarizeLog(log)}</p>
@@ -447,9 +494,14 @@ export function RulesManager({ items, logs }: { items: RuleRow[]; logs: RuleLogR
                       </div>
                       <div className="space-y-2 text-xs text-slate-600">
                         {changedFields.map((field) => (
-                          <p key={field}>
-                            {humanizeField(field)}：{humanizeValue(field, before[field])} {"->"} {humanizeValue(field, after[field])}
-                          </p>
+                          <div key={field} className="space-y-1">
+                            <p>
+                              {humanizeField(field)}：{humanizeValue(field, before[field])} {"->"} {humanizeValue(field, after[field])}
+                            </p>
+                            {field === "ruleContentJson" ? (
+                              <p className="text-slate-500">键级变化：{summarizeRuleContentDiff(before[field], after[field])}</p>
+                            ) : null}
+                          </div>
                         ))}
                       </div>
                     </div>

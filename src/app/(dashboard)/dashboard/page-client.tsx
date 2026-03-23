@@ -2,17 +2,17 @@
 
 /**
  * 文件说明：三步工作台客户端控制面板。
- * 功能说明：提供开始工作、进入审核修订区、停止工作，以及失败任务重试。
+ * 功能说明：提供开始工作、进入审核修订区、停止工作，以及失败任务重试和人工接管提醒展示。
  *
  * 结构概览：
  *   第一部分：状态类型与本地状态
  *   第二部分：工作台接口调用
- *   第三部分：三步卡片与异常面板渲染
+ *   第三部分：三步卡片与人工接管面板渲染
  */
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -53,6 +53,9 @@ type ApiResult<T> = {
 type ManualExceptionItem = {
   id: string;
   exceptionType: string;
+  priority: "high" | "medium" | "low";
+  priorityLabel: string;
+  priorityReason: string;
   message: string;
   updatedAt: string | Date;
   resolvedBy: { name: string | null } | null;
@@ -258,24 +261,36 @@ export function DashboardManualExceptionsPanel({
 }) {
   const [onlyMine, setOnlyMine] = useState(true);
 
-  const visibleItems = (onlyMine
-    ? items.filter((item) => item.resolvedById === currentUserId)
-    : items) satisfies ManualExceptionItem[];
+  const visibleItems = useMemo(() => {
+    const selected = onlyMine ? items.filter((item) => item.resolvedById === currentUserId) : items;
+    const priorityRank = { high: 0, medium: 1, low: 2 } as const;
+
+    return [...selected].sort((a, b) => {
+      const mineRankA = a.resolvedById === currentUserId ? 0 : 1;
+      const mineRankB = b.resolvedById === currentUserId ? 0 : 1;
+      if (mineRankA !== mineRankB) {
+        return mineRankA - mineRankB;
+      }
+
+      const priorityDiff = priorityRank[a.priority] - priorityRank[b.priority];
+      if (priorityDiff !== 0) {
+        return priorityDiff;
+      }
+
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+    });
+  }, [currentUserId, items, onlyMine]);
 
   return (
     <Card>
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
           <h3 className="text-lg font-semibold text-slate-900">人工接管提醒</h3>
-          <p className="mt-1 text-sm text-slate-500">先把人工接管中的异常集中看清，再从最短入口进入处理。</p>
+          <p className="mt-1 text-sm text-slate-500">先把人工接管中的异常按优先级排清，再从最短入口进入处理。</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <label className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 text-sm text-slate-600">
-            <input
-              type="checkbox"
-              checked={onlyMine}
-              onChange={(event) => setOnlyMine(event.target.checked)}
-            />
+            <input type="checkbox" checked={onlyMine} onChange={(event) => setOnlyMine(event.target.checked)} />
             只看我的
           </label>
           <Link href="/ops/exceptions">
@@ -298,12 +313,20 @@ export function DashboardManualExceptionsPanel({
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge tone="warning">人工处理中</Badge>
+                    <Badge
+                      tone={
+                        item.priority === "high" ? "danger" : item.priority === "medium" ? "warning" : "neutral"
+                      }
+                    >
+                      {item.priorityLabel}
+                    </Badge>
                     <p className="font-medium text-slate-900">{item.exceptionType}</p>
                   </div>
                   <p className="mt-2 text-sm text-slate-700">{item.message}</p>
                   <p className="mt-1 text-sm text-slate-500">
                     负责人：{item.resolvedBy?.name ?? "待分配"} 路 最近更新时间：{formatDateTime(item.updatedAt)}
                   </p>
+                  <p className="mt-1 text-sm text-slate-500">优先级依据：{item.priorityReason}</p>
                   {item.note ? (
                     <p className="mt-2 rounded-xl bg-white/80 px-3 py-2 text-sm text-slate-600">处理说明：{item.note}</p>
                   ) : null}
