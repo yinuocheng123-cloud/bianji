@@ -47,6 +47,13 @@ enum PromptType {
   SUMMARY
   SEO
   GEO
+  COMPANY_RESEARCH
+}
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 enum TaskType {
@@ -154,9 +161,15 @@ model Site {
   description    String?
   isActive       Boolean       @default(true)
   crawlFrequency String?
+  reviewStatus   ReviewStatus  @default(APPROVED)
+  reviewNotes    String?
+  reviewEvidence Json?
+  discoveryQuery String?
+  companyProfileId String?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
   contents       ContentItem[]
+  companyProfile CompanyProfile? @relation(fields: [companyProfileId], references: [id], onDelete: SetNull)
 }
 
 model ContentItem {
@@ -226,6 +239,10 @@ model CompanyProfile {
   region             String?
   description        String?
   positioning        String?
+  officialWebsite    String?
+  reviewStatus       ReviewStatus   @default(APPROVED)
+  reviewNotes        String?
+  submissionSource   String?
   mainProducts       String[]
   advantages         String[]
   honors             String[]
@@ -233,6 +250,7 @@ model CompanyProfile {
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
   sourceRecords      SourceRecord[]
+  candidateSites     Site[]
 }
 
 model SourceRecord {

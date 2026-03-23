@@ -11,22 +11,26 @@ import { editorRoles, requireApiUser } from "@/lib/permissions";
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const keyword = searchParams.get("keyword") ?? "";
+  const reviewStatus = searchParams.get("reviewStatus");
   const { page, pageSize, skip } = getPagination(searchParams);
 
-  const where = keyword
-    ? {
-        OR: [
-          { name: { contains: keyword, mode: "insensitive" as const } },
-          { baseUrl: { contains: keyword, mode: "insensitive" as const } },
-        ],
-      }
-    : {};
+  const where = {
+    ...(keyword
+      ? {
+          OR: [
+            { name: { contains: keyword, mode: "insensitive" as const } },
+            { baseUrl: { contains: keyword, mode: "insensitive" as const } },
+          ],
+        }
+      : {}),
+    ...(reviewStatus ? { reviewStatus: reviewStatus as "PENDING" | "APPROVED" | "REJECTED" } : {}),
+  };
 
   const [items, total] = await Promise.all([
     db.site.findMany({
       where,
-      include: { _count: { select: { contents: true } } },
-      orderBy: { updatedAt: "desc" },
+      include: { _count: { select: { contents: true } }, companyProfile: true },
+      orderBy: [{ reviewStatus: "asc" }, { updatedAt: "desc" }],
       skip,
       take: pageSize,
     }),
@@ -57,6 +61,11 @@ export async function POST(request: Request) {
       description: body.description ? String(body.description) : null,
       crawlFrequency: body.crawlFrequency ? String(body.crawlFrequency) : null,
       isActive: body.isActive ?? true,
+      reviewStatus: body.reviewStatus ?? "APPROVED",
+      reviewNotes: body.reviewNotes ? String(body.reviewNotes) : null,
+      companyProfileId: body.companyProfileId ? String(body.companyProfileId) : null,
+      discoveryQuery: body.discoveryQuery ? String(body.discoveryQuery) : null,
+      reviewEvidence: body.reviewEvidence ?? undefined,
     },
   });
 

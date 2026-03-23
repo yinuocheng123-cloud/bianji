@@ -9,8 +9,8 @@ export default async function SitesPage() {
   const sites = await withFallback(
     () =>
       db.site.findMany({
-        include: { _count: { select: { contents: true } } },
-        orderBy: { updatedAt: "desc" },
+        include: { _count: { select: { contents: true } }, companyProfile: true },
+        orderBy: [{ reviewStatus: "asc" }, { updatedAt: "desc" }],
       }),
     [],
   );

@@ -18,6 +18,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Select } from "@/components/ui/select";
+import { reviewStatusLabels } from "@/lib/constants";
 import { formatDateTime } from "@/lib/utils";
 
 type SiteRow = {
@@ -27,6 +29,13 @@ type SiteRow = {
   description: string | null;
   crawlFrequency: string | null;
   isActive: boolean;
+  reviewStatus: "PENDING" | "APPROVED" | "REJECTED";
+  reviewNotes: string | null;
+  discoveryQuery: string | null;
+  companyProfile: {
+    id: string;
+    companyName: string;
+  } | null;
   updatedAt: string | Date;
   _count: {
     contents: number;
@@ -49,24 +58,33 @@ const emptyForm: SiteForm = {
   isActive: true,
 };
 
+function getReviewTone(status: "PENDING" | "APPROVED" | "REJECTED") {
+  if (status === "APPROVED") return "success";
+  if (status === "REJECTED") return "danger";
+  return "warning";
+}
+
 export function SitesManager({ items }: { items: SiteRow[] }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [editingId, setEditingId] = useState("");
   const [form, setForm] = useState<SiteForm>(emptyForm);
+  const [reviewFilter, setReviewFilter] = useState<"ALL" | "PENDING" | "APPROVED" | "REJECTED">("ALL");
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState("可以维护来源站点、抓取频率和启停状态。");
 
   const filteredItems = useMemo(() => {
     const keyword = query.trim().toLowerCase();
-    if (!keyword) return items;
+    const reviewMatched =
+      reviewFilter === "ALL" ? items : items.filter((item) => item.reviewStatus === reviewFilter);
+    if (!keyword) return reviewMatched;
 
-    return items.filter((item) =>
-      [item.name, item.baseUrl, item.description ?? "", item.crawlFrequency ?? ""].some((value) =>
+    return reviewMatched.filter((item) =>
+      [item.name, item.baseUrl, item.description ?? "", item.crawlFrequency ?? "", item.companyProfile?.companyName ?? ""].some((value) =>
         value.toLowerCase().includes(keyword),
       ),
     );
-  }, [items, query]);
+  }, [items, query, reviewFilter]);
 
   function beginCreate() {
     setEditingId("");
@@ -133,6 +151,10 @@ export function SitesManager({ items }: { items: SiteRow[] }) {
         description: item.description,
         crawlFrequency: item.crawlFrequency,
         isActive: !item.isActive,
+        reviewStatus: item.reviewStatus,
+        reviewNotes: item.reviewNotes,
+        companyProfileId: item.companyProfile?.id ?? null,
+        discoveryQuery: item.discoveryQuery,
       }),
     });
     const result = (await response.json().catch(() => null)) as { success?: boolean; message?: string } | null;
@@ -144,6 +166,35 @@ export function SitesManager({ items }: { items: SiteRow[] }) {
     }
 
     setFeedback(`已${item.isActive ? "停用" : "启用"}站点：${item.name}`);
+    router.refresh();
+  }
+
+  async function reviewSite(item: SiteRow, action: "approve" | "reject") {
+    const note = window.prompt(
+      action === "approve" ? `请输入通过说明（可选）：${item.name}` : `请输入驳回原因：${item.name}`,
+      action === "approve" ? "官网候选已核实，可进入正式站点池。" : "",
+    );
+
+    if (action === "reject" && !note?.trim()) {
+      setFeedback("驳回站点时需要填写原因。");
+      return;
+    }
+
+    setLoading(true);
+    const response = await fetch(`/api/sites/${item.id}/${action}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ note: note?.trim() ?? "" }),
+    });
+    const result = (await response.json().catch(() => null)) as { success?: boolean; message?: string } | null;
+    setLoading(false);
+
+    if (!response.ok || !result?.success) {
+      setFeedback(result?.message ?? `站点${action === "approve" ? "通过" : "驳回"}失败。`);
+      return;
+    }
+
+    setFeedback(`已${action === "approve" ? "通过" : "驳回"}站点：${item.name}`);
     router.refresh();
   }
 
@@ -162,6 +213,12 @@ export function SitesManager({ items }: { items: SiteRow[] }) {
               onChange={(event) => setQuery(event.target.value)}
               placeholder="搜索站点名称、地址或抓取频率"
             />
+            <Select className="w-full lg:w-40" value={reviewFilter} onChange={(event) => setReviewFilter(event.target.value as typeof reviewFilter)}>
+              <option value="ALL">全部状态</option>
+              <option value="PENDING">待审核</option>
+              <option value="APPROVED">已通过</option>
+              <option value="REJECTED">已驳回</option>
+            </Select>
             <Button type="button" variant="secondary" onClick={beginCreate}>
               新增站点
             </Button>
@@ -225,6 +282,8 @@ export function SitesManager({ items }: { items: SiteRow[] }) {
             <thead className="bg-slate-50 text-slate-500">
               <tr>
                 <th className="px-5 py-3">站点</th>
+                <th className="px-5 py-3">审核状态</th>
+                <th className="px-5 py-3">关联企业</th>
                 <th className="px-5 py-3">地址</th>
                 <th className="px-5 py-3">抓取频率</th>
                 <th className="px-5 py-3">内容数</th>
@@ -239,7 +298,15 @@ export function SitesManager({ items }: { items: SiteRow[] }) {
                   <td className="px-5 py-4">
                     <p className="font-medium text-slate-900">{item.name}</p>
                     <p className="mt-1 text-xs text-slate-500">{item.description ?? "暂无说明"}</p>
+                    <p className="mt-1 text-xs text-slate-400">{item.discoveryQuery ? `AI 检索词：${item.discoveryQuery}` : "人工维护站点"}</p>
                   </td>
+                  <td className="px-5 py-4">
+                    <div className="space-y-2">
+                      <Badge tone={getReviewTone(item.reviewStatus)}>{reviewStatusLabels[item.reviewStatus]}</Badge>
+                      <p className="text-xs text-slate-500">{item.reviewNotes ?? "暂无审核说明"}</p>
+                    </div>
+                  </td>
+                  <td className="px-5 py-4 text-slate-600">{item.companyProfile?.companyName ?? "未关联"}</td>
                   <td className="px-5 py-4 text-slate-600">
                     <span className="break-all">{item.baseUrl}</span>
                   </td>
@@ -254,6 +321,16 @@ export function SitesManager({ items }: { items: SiteRow[] }) {
                       <Button type="button" variant="secondary" className="h-9" onClick={() => beginEdit(item)}>
                         编辑
                       </Button>
+                      {item.reviewStatus === "PENDING" ? (
+                        <>
+                          <Button type="button" className="h-9" onClick={() => reviewSite(item, "approve")} disabled={loading}>
+                            通过
+                          </Button>
+                          <Button type="button" variant="ghost" className="h-9 text-rose-600" onClick={() => reviewSite(item, "reject")} disabled={loading}>
+                            驳回
+                          </Button>
+                        </>
+                      ) : null}
                       <Button
                         type="button"
                         variant="ghost"

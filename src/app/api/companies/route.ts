@@ -4,30 +4,34 @@
  */
 
 import { ok, fail, getPagination } from "@/lib/api";
-import { getSessionUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { logOperation } from "@/lib/logger";
+import { editorRoles, requireApiUser } from "@/lib/permissions";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const keyword = searchParams.get("keyword") ?? "";
+  const reviewStatus = searchParams.get("reviewStatus");
   const { page, pageSize, skip } = getPagination(searchParams);
 
-  const where = keyword
-    ? {
-        OR: [
-          { companyName: { contains: keyword, mode: "insensitive" as const } },
-          { brandName: { contains: keyword, mode: "insensitive" as const } },
-          { region: { contains: keyword, mode: "insensitive" as const } },
-        ],
-      }
-    : {};
+  const where = {
+    ...(keyword
+      ? {
+          OR: [
+            { companyName: { contains: keyword, mode: "insensitive" as const } },
+            { brandName: { contains: keyword, mode: "insensitive" as const } },
+            { region: { contains: keyword, mode: "insensitive" as const } },
+          ],
+        }
+      : {}),
+    ...(reviewStatus ? { reviewStatus: reviewStatus as "PENDING" | "APPROVED" | "REJECTED" } : {}),
+  };
 
   const [items, total] = await Promise.all([
     db.companyProfile.findMany({
       where,
-      include: { sourceRecords: true },
-      orderBy: { updatedAt: "desc" },
+      include: { sourceRecords: true, candidateSites: true },
+      orderBy: [{ reviewStatus: "asc" }, { updatedAt: "desc" }],
       skip,
       take: pageSize,
     }),
@@ -38,9 +42,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const user = await getSessionUser();
-  if (!user) {
-    return fail("未登录。", 401);
+  const auth = await requireApiUser(editorRoles);
+  if (!auth.ok) {
+    return auth.response;
   }
 
   const body = await request.json();
@@ -57,6 +61,10 @@ export async function POST(request: Request) {
       region: body.region ? String(body.region) : null,
       description: body.description ? String(body.description) : null,
       positioning: body.positioning ? String(body.positioning) : null,
+      officialWebsite: body.officialWebsite ? String(body.officialWebsite) : null,
+      reviewStatus: "APPROVED",
+      reviewNotes: body.reviewNotes ? String(body.reviewNotes) : null,
+      submissionSource: "MANUAL",
       mainProducts: Array.isArray(body.mainProducts) ? body.mainProducts : [],
       advantages: Array.isArray(body.advantages) ? body.advantages : [],
       honors: Array.isArray(body.honors) ? body.honors : [],
@@ -74,9 +82,8 @@ export async function POST(request: Request) {
     module: "companies",
     targetType: "companyProfile",
     targetId: company.id,
-    userId: user.id,
+    userId: auth.user.id,
   });
 
   return ok(company);
 }
-

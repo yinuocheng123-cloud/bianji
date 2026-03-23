@@ -5,6 +5,7 @@ import {
   WorkflowStatus,
   DraftStatus,
   PromptType,
+  ReviewStatus,
   TaskType,
   TaskStatus,
   TaskTriggerType,
@@ -73,6 +74,7 @@ async function main() {
       baseUrl: "https://example.com",
       description: "用于 MVP 演示的公开站点",
       crawlFrequency: "daily",
+      reviewStatus: ReviewStatus.APPROVED,
     },
   });
 
@@ -189,6 +191,10 @@ async function main() {
       region: "浙江",
       description: "聚焦高端整木定制的一体化品牌。",
       positioning: "高端住宅空间整木解决方案提供商",
+      officialWebsite: "https://www.example.com",
+      reviewStatus: ReviewStatus.APPROVED,
+      reviewNotes: "人工维护资料，已通过。",
+      submissionSource: "MANUAL",
       mainProducts: ["整木定制", "木门", "护墙板"],
       advantages: ["交付标准化", "高端案例沉淀"],
       honors: ["示例行业奖项"],
@@ -201,6 +207,79 @@ async function main() {
             note: "来自首轮内容池示例数据",
           },
         ],
+      },
+    },
+  });
+
+  await prisma.companyProfile.upsert({
+    where: { id: "seed-company-002" },
+    update: {
+      reviewStatus: ReviewStatus.PENDING,
+      reviewNotes: "AI 自动检索提交待审核，请确认官网与主营产品。",
+      submissionSource: "AI_DISCOVERY",
+      officialWebsite: "https://pending-example.com",
+    },
+    create: {
+      id: "seed-company-002",
+      companyName: "待审核整木品牌有限公司",
+      brandName: "待审核整木",
+      region: "广东",
+      description: "来自公开网络检索的企业资料候选。",
+      positioning: "整木定制与木门墙柜一体化方案候选资料。",
+      officialWebsite: "https://pending-example.com",
+      reviewStatus: ReviewStatus.PENDING,
+      reviewNotes: "AI 自动检索提交待审核，请确认官网与主营产品。",
+      submissionSource: "AI_DISCOVERY",
+      mainProducts: ["整木定制", "护墙板", "木门墙柜一体化"],
+      advantages: ["资料来源较多", "官网候选已识别"],
+      honors: ["待人工确认"],
+      people: ["品牌负责人待确认"],
+      sourceRecords: {
+        create: [
+          {
+            sourceUrl: "https://pending-example.com/about",
+            sourceTitle: "待审核整木品牌官网介绍",
+            note: "AI 检索到的公开网页候选。",
+          },
+          {
+            sourceUrl: "https://news.example.com/pending-brand",
+            sourceTitle: "待审核整木品牌新闻稿",
+            note: "AI 检索到的公开新闻候选。",
+          },
+        ],
+      },
+    },
+  });
+
+  await prisma.site.upsert({
+    where: { baseUrl: "https://pending-example.com" },
+    update: {
+      reviewStatus: ReviewStatus.PENDING,
+      reviewNotes: "AI 自动检索到官网候选，待编辑或管理员确认。",
+      companyProfileId: "seed-company-002",
+      discoveryQuery: "待审核整木品牌",
+      isActive: false,
+      reviewEvidence: {
+        query: "待审核整木品牌",
+        sourceUrl: "https://pending-example.com/about",
+        reason: "搜索结果命中官网介绍页。",
+        mode: "ai",
+      },
+    },
+    create: {
+      baseUrl: "https://pending-example.com",
+      name: "待审核整木品牌官网候选",
+      description: "AI 自动检索到的官网候选。",
+      isActive: false,
+      reviewStatus: ReviewStatus.PENDING,
+      reviewNotes: "AI 自动检索到官网候选，待编辑或管理员确认。",
+      companyProfileId: "seed-company-002",
+      discoveryQuery: "待审核整木品牌",
+      reviewEvidence: {
+        query: "待审核整木品牌",
+        sourceUrl: "https://pending-example.com/about",
+        reason: "搜索结果命中官网介绍页。",
+        mode: "ai",
       },
     },
   });
@@ -222,6 +301,16 @@ async function main() {
       userPrompt:
         "请基于以下信息生成草稿，输出标题、导语、正文、摘要、SEO 标题、SEO 描述、GEO 摘要、标签建议：正文={{content}}；结构化信息={{structuredData}}。",
       variables: ["content", "structuredData"],
+    },
+    {
+      name: "默认企业资料检索模板",
+      type: PromptType.COMPANY_RESEARCH,
+      description: "将公开网络检索结果整理为企业资料候选和官网候选，供编辑审核。",
+      systemPrompt:
+        "你是整木网 AI 编辑部的企业资料研究助理。请只根据提供的公开网页结果整理企业资料候选，不能编造没有依据的字段；无法确认时留空或写成待确认风格。",
+      userPrompt:
+        "请基于以下企业检索输入，输出企业资料候选与官网候选。企业名：{{companyName}}。官网线索：{{officialWebsiteHint}}。公开网页结果：{{pages}}。",
+      variables: ["companyName", "officialWebsiteHint", "pages"],
     },
   ];
 

@@ -4,15 +4,15 @@
  */
 
 import { ok, fail } from "@/lib/api";
-import { getSessionUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { logOperation } from "@/lib/logger";
+import { editorRoles, requireApiUser } from "@/lib/permissions";
 
 export async function GET(_request: Request, context: RouteContext<"/api/companies/[id]">) {
   const { id } = await context.params;
   const company = await db.companyProfile.findUnique({
     where: { id },
-    include: { sourceRecords: true },
+    include: { sourceRecords: true, candidateSites: true },
   });
 
   if (!company) {
@@ -23,9 +23,9 @@ export async function GET(_request: Request, context: RouteContext<"/api/compani
 }
 
 export async function PATCH(request: Request, context: RouteContext<"/api/companies/[id]">) {
-  const user = await getSessionUser();
-  if (!user) {
-    return fail("未登录", 401);
+  const auth = await requireApiUser(editorRoles);
+  if (!auth.ok) {
+    return auth.response;
   }
 
   const { id } = await context.params;
@@ -39,6 +39,9 @@ export async function PATCH(request: Request, context: RouteContext<"/api/compan
       region: body.region,
       description: body.description,
       positioning: body.positioning,
+      officialWebsite: body.officialWebsite,
+      reviewStatus: body.reviewStatus,
+      reviewNotes: body.reviewNotes,
       mainProducts: Array.isArray(body.mainProducts) ? body.mainProducts : undefined,
       advantages: Array.isArray(body.advantages) ? body.advantages : undefined,
       honors: Array.isArray(body.honors) ? body.honors : undefined,
@@ -59,16 +62,16 @@ export async function PATCH(request: Request, context: RouteContext<"/api/compan
     module: "companies",
     targetType: "companyProfile",
     targetId: id,
-    userId: user.id,
+    userId: auth.user.id,
   });
 
   return ok(company);
 }
 
 export async function DELETE(_request: Request, context: RouteContext<"/api/companies/[id]">) {
-  const user = await getSessionUser();
-  if (!user) {
-    return fail("未登录", 401);
+  const auth = await requireApiUser(editorRoles);
+  if (!auth.ok) {
+    return auth.response;
   }
 
   const { id } = await context.params;
@@ -79,7 +82,7 @@ export async function DELETE(_request: Request, context: RouteContext<"/api/comp
     module: "companies",
     targetType: "companyProfile",
     targetId: id,
-    userId: user.id,
+    userId: auth.user.id,
   });
 
   return ok({ deleted: true });

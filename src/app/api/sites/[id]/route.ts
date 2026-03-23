@@ -25,6 +25,11 @@ export async function PATCH(request: Request, context: RouteContext<"/api/sites/
       description: body.description,
       crawlFrequency: body.crawlFrequency,
       isActive: body.isActive,
+      reviewStatus: body.reviewStatus,
+      reviewNotes: body.reviewNotes,
+      companyProfileId: body.companyProfileId,
+      discoveryQuery: body.discoveryQuery,
+      reviewEvidence: body.reviewEvidence,
     },
   });
 

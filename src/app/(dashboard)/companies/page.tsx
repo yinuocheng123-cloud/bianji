@@ -9,8 +9,8 @@ export default async function CompaniesPage() {
   const companies = await withFallback(
     () =>
       db.companyProfile.findMany({
-        include: { sourceRecords: true },
-        orderBy: { updatedAt: "desc" },
+        include: { sourceRecords: true, candidateSites: true },
+        orderBy: [{ reviewStatus: "asc" }, { updatedAt: "desc" }],
       }),
     [],
   );

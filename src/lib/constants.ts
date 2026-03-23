@@ -8,7 +8,7 @@
  *   第三部分：模块说明
  */
 
-import type { DraftStatus, PromptType, UserRole, WorkflowStatus } from "@prisma/client";
+import type { DraftStatus, PromptType, ReviewStatus, UserRole, WorkflowStatus } from "@prisma/client";
 import {
   Archive,
   Bot,
@@ -66,6 +66,13 @@ export const promptTypeLabels: Record<PromptType, string> = {
   SUMMARY: "摘要生成",
   SEO: "SEO 优化",
   GEO: "GEO 摘要",
+  COMPANY_RESEARCH: "企业资料检索",
+};
+
+export const reviewStatusLabels: Record<ReviewStatus, string> = {
+  PENDING: "待审核",
+  APPROVED: "已通过",
+  REJECTED: "已驳回",
 };
 
 export const contentStatusFlow: WorkflowStatus[] = [
