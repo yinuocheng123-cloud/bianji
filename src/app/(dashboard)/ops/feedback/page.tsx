@@ -18,7 +18,11 @@ import { StatCard } from "@/components/stat-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { companyReviewIssueCategoryLabels } from "@/lib/constants";
+import {
+  aiProviderLabels,
+  aiScenarioLabels,
+  companyReviewIssueCategoryLabels,
+} from "@/lib/constants";
 import { db } from "@/lib/db";
 import { withFallback } from "@/lib/safe-data";
 import { formatDateTime } from "@/lib/utils";
@@ -52,6 +56,20 @@ type SourceQualityRow = {
   archived: number;
   inReview: number;
   qualityScore: number;
+};
+
+type AILogStatus = "SUCCESS" | "FAILED";
+type AILogScenario = "COMPANY_RESEARCH" | "STRUCTURED_EXTRACTION" | "DRAFT_GENERATION";
+type AILogProvider = "OPENAI" | "DEEPSEEK";
+
+type AILogSummaryRow = {
+  key: string;
+  label: string;
+  total: number;
+  success: number;
+  failed: number;
+  successRate: number;
+  avgDurationMs: number;
 };
 
 type CompanyReviewSummary = {
@@ -156,6 +174,68 @@ function summarizeSourceQuality(items: Array<{ source: string; status: string }>
   });
 }
 
+function summarizeAICallGroup<T extends string>(
+  logs: Array<{
+    status: AILogStatus;
+    durationMs: number;
+    key: T;
+  }>,
+  labelMap: Record<T, string>,
+) {
+  const groups = new Map<T, { total: number; success: number; failed: number; durationMs: number }>();
+
+  for (const log of logs) {
+    const current =
+      groups.get(log.key) ?? {
+        total: 0,
+        success: 0,
+        failed: 0,
+        durationMs: 0,
+      };
+
+    current.total += 1;
+    current.durationMs += log.durationMs;
+    if (log.status === "SUCCESS") {
+      current.success += 1;
+    } else {
+      current.failed += 1;
+    }
+    groups.set(log.key, current);
+  }
+
+  return [...groups.entries()]
+    .map(([key, value]) => ({
+      key,
+      label: labelMap[key],
+      total: value.total,
+      success: value.success,
+      failed: value.failed,
+      successRate: value.total === 0 ? 0 : Math.round((value.success / value.total) * 100),
+      avgDurationMs: value.total === 0 ? 0 : Math.round(value.durationMs / value.total),
+    }))
+    .sort((a, b) => b.total - a.total || a.successRate - b.successRate);
+}
+
+function buildAICallTargetHref(targetType: string | null, targetId: string | null) {
+  if (!targetType || !targetId) {
+    return "/settings/ai";
+  }
+
+  if (targetType === "contentItem") {
+    return `/content-pool/${targetId}`;
+  }
+
+  if (targetType === "companyProfile") {
+    return "/companies";
+  }
+
+  if (targetType === "draft") {
+    return `/drafts/${targetId}`;
+  }
+
+  return "/settings/ai";
+}
+
 export const dynamic = "force-dynamic";
 
 export default async function OpsFeedbackPage() {
@@ -170,6 +250,7 @@ export default async function OpsFeedbackPage() {
         resolvedManualExceptions,
         sourceItems,
         companyReviewItems,
+        recentAICalls,
       ] = await Promise.all([
         db.reviewAction.groupBy({
           by: ["decision"],
@@ -230,6 +311,25 @@ export default async function OpsFeedbackPage() {
           },
           orderBy: { updatedAt: "desc" },
           take: 60,
+        }),
+        db.aICallLog.findMany({
+          where: {
+            createdAt: { gte: since },
+          },
+          orderBy: { createdAt: "desc" },
+          take: 150,
+          select: {
+            id: true,
+            providerType: true,
+            scenario: true,
+            status: true,
+            model: true,
+            durationMs: true,
+            errorMessage: true,
+            targetType: true,
+            targetId: true,
+            createdAt: true,
+          },
         }),
       ]);
 
@@ -408,6 +508,27 @@ export default async function OpsFeedbackPage() {
         });
       }
 
+      const aiCallTotal = recentAICalls.length;
+      const aiCallSuccessCount = recentAICalls.filter((item) => item.status === "SUCCESS").length;
+      const aiCallFailedCount = aiCallTotal - aiCallSuccessCount;
+      const aiCallSuccessRate = aiCallTotal === 0 ? 0 : Math.round((aiCallSuccessCount / aiCallTotal) * 100);
+      const aiCallScenarioStats = summarizeAICallGroup(
+        recentAICalls.map((item) => ({
+          key: item.scenario as AILogScenario,
+          status: item.status as AILogStatus,
+          durationMs: item.durationMs,
+        })),
+        aiScenarioLabels,
+      );
+      const aiCallProviderStats = summarizeAICallGroup(
+        recentAICalls.map((item) => ({
+          key: item.providerType as AILogProvider,
+          status: item.status as AILogStatus,
+          durationMs: item.durationMs,
+        })),
+        aiProviderLabels,
+      );
+
       return {
         totalReviewCount,
         approvedCount,
@@ -446,6 +567,15 @@ export default async function OpsFeedbackPage() {
             ...value,
           }))
           .sort((a, b) => b.count - a.count || b.latestAt.getTime() - a.latestAt.getTime()),
+        aiCallSummary: {
+          total: aiCallTotal,
+          success: aiCallSuccessCount,
+          failed: aiCallFailedCount,
+          successRate: aiCallSuccessRate,
+        },
+        aiCallScenarioStats,
+        aiCallProviderStats,
+        recentAIFailures: recentAICalls.filter((item) => item.status === "FAILED").slice(0, 8),
       };
     },
     {
@@ -508,6 +638,26 @@ export default async function OpsFeedbackPage() {
         sampleCompanyName: string;
         latestNote: string | null;
       }[],
+      aiCallSummary: {
+        total: 0,
+        success: 0,
+        failed: 0,
+        successRate: 0,
+      },
+      aiCallScenarioStats: [] as AILogSummaryRow[],
+      aiCallProviderStats: [] as AILogSummaryRow[],
+      recentAIFailures: [] as {
+        id: string;
+        providerType: AILogProvider;
+        scenario: AILogScenario;
+        status: AILogStatus;
+        model: string;
+        durationMs: number;
+        errorMessage: string | null;
+        targetType: string | null;
+        targetId: string | null;
+        createdAt: Date;
+      }[],
     },
   );
 
@@ -567,6 +717,29 @@ export default async function OpsFeedbackPage() {
           title="AI 企业已判定"
           value={data.companyReviewSummary.approved + data.companyReviewSummary.rejected}
           description="只统计已经进入人工通过或驳回状态的企业资料。"
+        />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          title="近 7 天 AI 调用"
+          value={data.aiCallSummary.total}
+          description={`成功 ${data.aiCallSummary.success} / 失败 ${data.aiCallSummary.failed}`}
+        />
+        <StatCard
+          title="AI 调用成功率"
+          value={`${data.aiCallSummary.successRate}%`}
+          description="统一按企业资料检索、结构化抽取和草稿生成三条链统计。"
+        />
+        <StatCard
+          title="调用场景数"
+          value={data.aiCallScenarioStats.length}
+          description="便于观察哪条 AI 链路最常被调用。"
+        />
+        <StatCard
+          title="Provider 数"
+          value={data.aiCallProviderStats.length}
+          description="用于观察 OpenAI / DeepSeek 的实际使用分布。"
         />
       </div>
 
@@ -786,6 +959,116 @@ export default async function OpsFeedbackPage() {
           </div>
         </Card>
       </div>
+
+      <div className="grid gap-6 xl:grid-cols-2">
+        <Card>
+          <h2 className="text-lg font-semibold text-slate-900">AI 场景调用表现</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            统一按场景看成功率和平均耗时，后续才能判断是企业资料检索、结构化抽取还是草稿生成更需要优先优化。
+          </p>
+
+          <div className="mt-5 space-y-3">
+            {data.aiCallScenarioStats.length === 0 ? (
+              <p className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-500">近 7 天还没有可统计的 AI 调用样本。</p>
+            ) : (
+              data.aiCallScenarioStats.map((item) => (
+                <div key={item.key} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <Badge tone={item.successRate >= 80 ? "success" : item.successRate >= 50 ? "warning" : "danger"}>
+                        成功率 {item.successRate}%
+                      </Badge>
+                      <p className="font-medium text-slate-900">{item.label}</p>
+                    </div>
+                    <p className="text-xs text-slate-500">平均耗时 {item.avgDurationMs} ms</p>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
+                    <span>总调用 {item.total}</span>
+                    <span>成功 {item.success}</span>
+                    <span>失败 {item.failed}</span>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
+
+        <Card>
+          <h2 className="text-lg font-semibold text-slate-900">AI Provider 使用分布</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            这部分帮助判断默认 Provider 是否稳定，后续可以直接反哺 AI 配置中心和默认链路策略。
+          </p>
+
+          <div className="mt-5 space-y-3">
+            {data.aiCallProviderStats.length === 0 ? (
+              <p className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-500">当前还没有可统计的 Provider 调用样本。</p>
+            ) : (
+              data.aiCallProviderStats.map((item) => (
+                <div key={item.key} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <Badge tone={item.failed === 0 ? "success" : item.successRate >= 70 ? "warning" : "danger"}>
+                        失败 {item.failed}
+                      </Badge>
+                      <p className="font-medium text-slate-900">{item.label}</p>
+                    </div>
+                    <p className="text-xs text-slate-500">平均耗时 {item.avgDurationMs} ms</p>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
+                    <span>总调用 {item.total}</span>
+                    <span>成功率 {item.successRate}%</span>
+                    <span>成功 {item.success}</span>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
+      </div>
+
+      <Card>
+        <h2 className="text-lg font-semibold text-slate-900">最近 AI 失败样本</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          先把失败样本集中看起来，减少在异常中心、内容页和 AI 配置页之间来回跳转。
+        </p>
+
+        <div className="mt-5 space-y-3">
+          {data.recentAIFailures.length === 0 ? (
+            <p className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-500">近 7 天没有记录到 AI 失败样本。</p>
+          ) : (
+            data.recentAIFailures.map((item) => (
+              <div key={item.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge tone="danger">{aiProviderLabels[item.providerType]}</Badge>
+                    <Badge tone="warning">{aiScenarioLabels[item.scenario]}</Badge>
+                    <p className="font-medium text-slate-900">{item.model}</p>
+                  </div>
+                  <p className="text-xs text-slate-500">{formatDateTime(item.createdAt)}</p>
+                </div>
+                <p className="mt-2 text-sm text-slate-700">{item.errorMessage ?? "未记录错误说明"}</p>
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                  <span>耗时 {item.durationMs} ms</span>
+                  <span>目标 {item.targetType ?? "未记录"}</span>
+                  <span>ID {item.targetId ?? "-"}</span>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Link href={buildAICallTargetHref(item.targetType, item.targetId)}>
+                    <Button type="button" variant="secondary">
+                      去相关对象
+                    </Button>
+                  </Link>
+                  <Link href="/settings/ai">
+                    <Button type="button" variant="secondary">
+                      去 AI 配置页
+                    </Button>
+                  </Link>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </Card>
 
       <div className="grid gap-6 xl:grid-cols-2">
         <Card>

@@ -36,7 +36,9 @@ function Test-RedisReady {
   }
 }
 
-if (!(Test-RedisReady)) {
+$wasRunning = Test-RedisReady
+
+if (!$wasRunning) {
   $psi = New-Object System.Diagnostics.ProcessStartInfo
   $psi.FileName = $memuraiExe
   $psi.Arguments = "`"$configFile`" --port 6379"
@@ -61,4 +63,13 @@ if (!(Test-RedisReady)) {
   throw "Local Redis could not be started."
 }
 
-Write-Host "Local Redis is running on 6379."
+$version = ""
+try {
+  $version = (& $memuraiCli -p 6379 INFO server 2>$null | Select-String "redis_version").ToString()
+} catch {
+}
+
+Write-Host ("Local Redis is {0} on 6379." -f ($(if ($wasRunning) { "already running" } else { "running" })))
+if ($version) {
+  Write-Host $version
+}

@@ -35,6 +35,7 @@ memurai-log.txt
 custom/runtime/
 custom/runtime-logs/
 dump.rdb
+custom/deepseek-minimal/node_modules/
 
 # env files (can opt-in for committing if needed)
 .env*

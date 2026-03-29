@@ -50,6 +50,11 @@ type SiteForm = {
   isActive: boolean;
 };
 
+type ReviewDialogState = {
+  item: SiteRow;
+  action: "approve" | "reject";
+};
+
 const emptyForm: SiteForm = {
   name: "",
   baseUrl: "",
@@ -70,6 +75,8 @@ export function SitesManager({ items }: { items: SiteRow[] }) {
   const [editingId, setEditingId] = useState("");
   const [form, setForm] = useState<SiteForm>(emptyForm);
   const [reviewFilter, setReviewFilter] = useState<"ALL" | "PENDING" | "APPROVED" | "REJECTED">("ALL");
+  const [reviewDialog, setReviewDialog] = useState<ReviewDialogState | null>(null);
+  const [reviewNote, setReviewNote] = useState("");
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState("可以维护来源站点、抓取频率和启停状态。");
 
@@ -169,32 +176,38 @@ export function SitesManager({ items }: { items: SiteRow[] }) {
     router.refresh();
   }
 
-  async function reviewSite(item: SiteRow, action: "approve" | "reject") {
-    const note = window.prompt(
-      action === "approve" ? `请输入通过说明（可选）：${item.name}` : `请输入驳回原因：${item.name}`,
-      action === "approve" ? "官网候选已核实，可进入正式站点池。" : "",
-    );
+  async function submitReviewDecision() {
+    if (!reviewDialog) {
+      return;
+    }
 
-    if (action === "reject" && !note?.trim()) {
+    if (reviewDialog.action === "reject" && !reviewNote.trim()) {
       setFeedback("驳回站点时需要填写原因。");
       return;
     }
 
     setLoading(true);
-    const response = await fetch(`/api/sites/${item.id}/${action}`, {
+    const response = await fetch(`/api/sites/${reviewDialog.item.id}/${reviewDialog.action}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ note: note?.trim() ?? "" }),
+      body: JSON.stringify({ note: reviewNote.trim() }),
     });
     const result = (await response.json().catch(() => null)) as { success?: boolean; message?: string } | null;
     setLoading(false);
 
     if (!response.ok || !result?.success) {
-      setFeedback(result?.message ?? `站点${action === "approve" ? "通过" : "驳回"}失败。`);
+      setFeedback(
+        result?.message ??
+          `站点${reviewDialog.action === "approve" ? "通过" : "驳回"}失败。`,
+      );
       return;
     }
 
-    setFeedback(`已${action === "approve" ? "通过" : "驳回"}站点：${item.name}`);
+    setFeedback(
+      `已${reviewDialog.action === "approve" ? "通过" : "驳回"}站点：${reviewDialog.item.name}`,
+    );
+    setReviewDialog(null);
+    setReviewNote("");
     router.refresh();
   }
 
@@ -323,10 +336,27 @@ export function SitesManager({ items }: { items: SiteRow[] }) {
                       </Button>
                       {item.reviewStatus === "PENDING" ? (
                         <>
-                          <Button type="button" className="h-9" onClick={() => reviewSite(item, "approve")} disabled={loading}>
+                          <Button
+                            type="button"
+                            className="h-9"
+                            onClick={() => {
+                              setReviewDialog({ item, action: "approve" });
+                              setReviewNote("官网候选已核实，可进入正式站点池。");
+                            }}
+                            disabled={loading}
+                          >
                             通过
                           </Button>
-                          <Button type="button" variant="ghost" className="h-9 text-rose-600" onClick={() => reviewSite(item, "reject")} disabled={loading}>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            className="h-9 text-rose-600"
+                            onClick={() => {
+                              setReviewDialog({ item, action: "reject" });
+                              setReviewNote("");
+                            }}
+                            disabled={loading}
+                          >
                             驳回
                           </Button>
                         </>
@@ -348,6 +378,77 @@ export function SitesManager({ items }: { items: SiteRow[] }) {
           </table>
         </div>
       </Card>
+
+      {reviewDialog ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 px-4">
+          <div className="w-full max-w-xl rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium text-slate-500">站点审核</p>
+                <h3 className="mt-1 text-xl font-semibold text-slate-900">
+                  {reviewDialog.action === "approve" ? "确认通过站点" : "确认驳回站点"}
+                </h3>
+                <p className="mt-2 text-sm leading-6 text-slate-500">
+                  当前对象：{reviewDialog.item.name}
+                  {reviewDialog.item.companyProfile ? ` / ${reviewDialog.item.companyProfile.companyName}` : ""}
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setReviewDialog(null)}
+                disabled={loading}
+              >
+                关闭
+              </Button>
+            </div>
+
+            <div className="mt-5 space-y-4">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                <p>站点地址：{reviewDialog.item.baseUrl}</p>
+                <p className="mt-1">
+                  AI 检索词：{reviewDialog.item.discoveryQuery ?? "无"}
+                </p>
+                <p className="mt-1">当前说明：{reviewDialog.item.reviewNotes ?? "暂无审核说明"}</p>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-slate-900">
+                  {reviewDialog.action === "approve" ? "通过说明" : "驳回原因"}
+                </p>
+                <Textarea
+                  value={reviewNote}
+                  onChange={(event) => setReviewNote(event.target.value)}
+                  placeholder={
+                    reviewDialog.action === "approve"
+                      ? "例如：官网主体与企业信息已核实，可进入正式站点池。"
+                      : "请明确写出驳回原因，便于后续修正规则或重新检索。"
+                  }
+                  className="min-h-32"
+                />
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-wrap justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setReviewDialog(null)}
+                disabled={loading}
+              >
+                取消
+              </Button>
+              <Button type="button" onClick={submitReviewDecision} disabled={loading}>
+                {loading
+                  ? "提交中..."
+                  : reviewDialog.action === "approve"
+                    ? "确认通过"
+                    : "确认驳回"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

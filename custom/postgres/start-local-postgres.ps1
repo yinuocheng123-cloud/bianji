@@ -75,6 +75,14 @@ function Wait-PostgresReady {
   return $false
 }
 
+function Get-PostgresVersion {
+  try {
+    return (& $psql -h localhost -U postgres -d postgres -tAc "SHOW server_version;" | Out-String).Trim()
+  } catch {
+    return ""
+  }
+}
+
 if ((Test-Path $postmasterPidFile) -and !(Test-PostgresReady)) {
   $pidValue = (Get-Content -Path $postmasterPidFile -ErrorAction SilentlyContinue | Select-Object -First 1).Trim()
 
@@ -86,7 +94,9 @@ if ((Test-Path $postmasterPidFile) -and !(Test-PostgresReady)) {
   }
 }
 
-if (!(Test-PostgresReady)) {
+$wasRunning = Test-PostgresReady
+
+if (!$wasRunning) {
   & $pgCtl -D $dataDir -l $logFile status 2>$null | Out-Null
 
   if ($LASTEXITCODE -ne 0) {
@@ -121,4 +131,10 @@ if (($exists | Out-String).Trim() -ne "1") {
   & $createdb -h localhost -U postgres editorial | Out-Host
 }
 
-Write-Host "Local PostgreSQL is running and editorial database is ready. Data directory: $dataDir"
+$version = Get-PostgresVersion
+$runningMessage = if ($wasRunning) { "already running" } else { "started" }
+Write-Host "Local PostgreSQL $runningMessage and editorial database is ready. Data directory: $dataDir"
+if ($version) {
+  Write-Host "PostgreSQL version: $version"
+}
+Write-Host "Runtime log: $logFile"

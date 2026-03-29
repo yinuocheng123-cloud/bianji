@@ -1,0 +1,17 @@
+{
+  "name": "deepseek-minimal-service",
+  "version": "0.1.0",
+  "private": true,
+  "description": "整木网 AI 编辑系统 DeepSeek API 最小打通版本",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^4.21.2",
+    "openai": "^6.32.0"
+  }
+}

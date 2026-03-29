@@ -45,6 +45,11 @@ type PromptForm = {
   isActive: boolean;
 };
 
+type DeleteDialogState = {
+  id: string;
+  name: string;
+};
+
 const emptyForm: PromptForm = {
   name: "",
   type: "STRUCTURED_EXTRACTION",
@@ -64,6 +69,7 @@ export function PromptsManager({ items }: { items: PromptRow[] }) {
   const [query, setQuery] = useState("");
   const [editingId, setEditingId] = useState("");
   const [form, setForm] = useState<PromptForm>(emptyForm);
+  const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState | null>(null);
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState("这里维护 AI 提示词模板，避免把业务逻辑写死在代码里。");
 
@@ -163,13 +169,13 @@ export function PromptsManager({ items }: { items: PromptRow[] }) {
     router.refresh();
   }
 
-  async function remove(id: string, name: string) {
-    if (!window.confirm(`确认删除模板“${name}”吗？`)) {
+  async function confirmRemove() {
+    if (!deleteDialog) {
       return;
     }
 
     setLoading(true);
-    const response = await fetch(`/api/prompts/${id}`, { method: "DELETE" });
+    const response = await fetch(`/api/prompts/${deleteDialog.id}`, { method: "DELETE" });
     const result = (await response.json().catch(() => null)) as { success?: boolean; message?: string } | null;
     setLoading(false);
 
@@ -178,10 +184,11 @@ export function PromptsManager({ items }: { items: PromptRow[] }) {
       return;
     }
 
-    setFeedback(`已删除模板：${name}`);
-    if (editingId === id) {
+    setFeedback(`已删除模板：${deleteDialog.name}`);
+    if (editingId === deleteDialog.id) {
       cancelEdit();
     }
+    setDeleteDialog(null);
     router.refresh();
   }
 
@@ -256,7 +263,15 @@ export function PromptsManager({ items }: { items: PromptRow[] }) {
                     <div className="flex flex-wrap gap-2">
                       <Button type="button" variant="secondary" className="h-9" onClick={() => beginEdit(item)}>编辑</Button>
                       <Button type="button" variant="ghost" className="h-9" onClick={() => toggleStatus(item)} disabled={loading}>{item.isActive ? "停用" : "启用"}</Button>
-                      <Button type="button" variant="ghost" className="h-9" onClick={() => remove(item.id, item.name)} disabled={loading}>删除</Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="h-9"
+                        onClick={() => setDeleteDialog({ id: item.id, name: item.name })}
+                        disabled={loading}
+                      >
+                        删除
+                      </Button>
                     </div>
                   </td>
                 </tr>
@@ -265,6 +280,39 @@ export function PromptsManager({ items }: { items: PromptRow[] }) {
           </table>
         </div>
       </Card>
+
+      {deleteDialog ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 px-4">
+          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="space-y-3">
+              <div>
+                <p className="text-sm font-medium text-slate-500">删除确认</p>
+                <h3 className="mt-1 text-xl font-semibold text-slate-900">确认删除提示词模板</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-500">
+                  删除后将移除当前模板及其线上启停配置。调用日志中已记录的模板名称和版本不会被回写修改。
+                </p>
+              </div>
+              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                将删除模板：{deleteDialog.name}
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-wrap justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setDeleteDialog(null)}
+                disabled={loading}
+              >
+                取消
+              </Button>
+              <Button type="button" onClick={confirmRemove} disabled={loading}>
+                {loading ? "删除中..." : "确认删除"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -25,12 +25,24 @@ $dataDirCandidates = @(
 $dataDir = $dataDirCandidates | Select-Object -First 1
 $pgCtl = Join-Path $pgRoot "bin\pg_ctl.exe"
 $pidFile = Join-Path $root "custom\runtime-logs\postgres-local.pid"
+$pgIsReady = Join-Path $pgRoot "bin\pg_isready.exe"
 
 if (!(Test-Path $pgCtl) -or !$dataDir) {
   throw "PostgreSQL runtime directory was not found."
 }
 
+function Test-PostgresReady {
+  try {
+    & $pgIsReady -h localhost -p 5432 | Out-Null
+    return $LASTEXITCODE -eq 0
+  } catch {
+    return $false
+  }
+}
+
 # ========== 第二部分：数据库停止流程 ==========
+$wasRunning = Test-PostgresReady
+
 if (Test-Path $pidFile) {
   $pidValue = (Get-Content -Path $pidFile -ErrorAction SilentlyContinue | Select-Object -First 1).Trim()
 
@@ -49,4 +61,8 @@ try {
 } catch {
 }
 
-Write-Host "Local PostgreSQL has been stopped."
+if (Test-PostgresReady) {
+  throw "Local PostgreSQL stop command finished, but the service is still responding on 5432."
+}
+
+Write-Host ("Local PostgreSQL has been {0}." -f ($(if ($wasRunning) { "stopped" } else { "already stopped" })))
