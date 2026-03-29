@@ -1,17 +1,17 @@
 /**
- * 文件说明：封装真实 AI 服务调用与提示词模板渲染。
- * 功能说明：基于数据库中的 PromptTemplate 调用 OpenAI Responses API，
- *          完成结构化抽取与草稿生成。
+ * 文件说明：统一封装结构化抽取与草稿生成业务逻辑。
+ * 功能说明：基于提示词模板和统一 AI Provider 层执行结构化抽取、草稿生成，
+ *          并把结果写回内容池与草稿表。
  *
  * 结构概览：
- *   第一部分：OpenAI 客户端与模板渲染
- *   第二部分：结构化抽取 Schema 与调用
- *   第三部分：草稿生成 Schema 与调用
+ *   第一部分：返回结构类型与 Schema
+ *   第二部分：结构化抽取主流程
+ *   第三部分：草稿生成主流程
  */
 
 import type { Prisma } from "@prisma/client";
-import OpenAI from "openai";
 
+import { getActivePromptTemplate, runStructuredTemplateCall } from "@/lib/ai-provider";
 import { db } from "@/lib/db";
 
 type StructuredExtractionResult = {
@@ -39,80 +39,7 @@ type DraftGenerationResult = {
   section: string;
 };
 
-function ensureOpenAIConfigured() {
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error("缺少 OPENAI_API_KEY，当前无法执行真实 AI 生成。");
-  }
-}
-
-function getOpenAIClient() {
-  ensureOpenAIConfigured();
-
-  return new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-    baseURL: process.env.OPENAI_BASE_URL || undefined,
-  });
-}
-
-export function renderPrompt(template: string, variables: Record<string, unknown>) {
-  return template.replace(/\{\{(.*?)\}\}/g, (_, key: string) => {
-    const value = variables[key.trim()];
-    if (typeof value === "string") {
-      return value;
-    }
-
-    return JSON.stringify(value ?? "", null, 2);
-  });
-}
-
-async function getActiveTemplate(type: "STRUCTURED_EXTRACTION" | "DRAFT_GENERATION") {
-  const template = await db.promptTemplate.findFirst({
-    where: { type, isActive: true },
-    orderBy: { updatedAt: "desc" },
-  });
-
-  if (!template) {
-    throw new Error(`未找到启用中的 ${type} 提示词模板。`);
-  }
-
-  return template;
-}
-
-async function createStructuredResponse<T>({
-  model,
-  schemaName,
-  schema,
-  instructions,
-  input,
-}: {
-  model: string;
-  schemaName: string;
-  schema: Record<string, unknown>;
-  instructions: string;
-  input: string;
-}) {
-  ensureOpenAIConfigured();
-
-  const response = await getOpenAIClient().responses.create({
-    model,
-    instructions,
-    input,
-    text: {
-      format: {
-        type: "json_schema",
-        name: schemaName,
-        strict: true,
-        schema,
-      },
-    },
-  });
-
-  if (!response.output_text) {
-    throw new Error("AI 未返回结构化文本结果。");
-  }
-
-  return JSON.parse(response.output_text) as T;
-}
+// ========== 第一部分：返回结构类型与 Schema ==========
 
 function getStructuredExtractionSchema() {
   return {
@@ -186,7 +113,9 @@ function getDraftSchema() {
   };
 }
 
-export async function generateStructuredExtraction(contentItemId: string) {
+// ========== 第二部分：结构化抽取主流程 ==========
+
+export async function generateStructuredExtraction(contentItemId: string, createdById?: string | null) {
   const contentItem = await db.contentItem.findUnique({
     where: { id: contentItemId },
     include: { keywords: true },
@@ -196,20 +125,23 @@ export async function generateStructuredExtraction(contentItemId: string) {
     throw new Error("内容不存在，无法执行结构化抽取。");
   }
 
-  const template = await getActiveTemplate("STRUCTURED_EXTRACTION");
-  const renderedPrompt = renderPrompt(template.userPrompt, {
+  const template = await getActivePromptTemplate("STRUCTURED_EXTRACTION");
+  const variables = {
     title: contentItem.title,
     content: contentItem.extractedText ?? contentItem.rawHtml ?? "",
     source: contentItem.source,
     keywords: contentItem.keywords.map((keyword) => keyword.term),
-  });
+  };
 
-  const structuredData = await createStructuredResponse<StructuredExtractionResult>({
-    model: process.env.OPENAI_MODEL_STRUCTURED || "gpt-4o-mini",
+  const structuredData = await runStructuredTemplateCall<StructuredExtractionResult>({
+    scenario: "STRUCTURED_EXTRACTION",
+    template,
+    variables,
     schemaName: "structured_extraction_result",
     schema: getStructuredExtractionSchema(),
-    instructions: template.systemPrompt,
-    input: renderedPrompt,
+    targetType: "contentItem",
+    targetId: contentItemId,
+    createdById,
   });
 
   return db.contentItem.update({
@@ -223,7 +155,9 @@ export async function generateStructuredExtraction(contentItemId: string) {
   });
 }
 
-export async function generateDraftFromContent(contentItemId: string) {
+// ========== 第三部分：草稿生成主流程 ==========
+
+export async function generateDraftFromContent(contentItemId: string, createdById?: string | null) {
   const contentItem = await db.contentItem.findUnique({
     where: { id: contentItemId },
   });
@@ -232,20 +166,23 @@ export async function generateDraftFromContent(contentItemId: string) {
     throw new Error("内容不存在，无法生成草稿。");
   }
 
-  const template = await getActiveTemplate("DRAFT_GENERATION");
-  const renderedPrompt = renderPrompt(template.userPrompt, {
+  const template = await getActivePromptTemplate("DRAFT_GENERATION");
+  const variables = {
     title: contentItem.title,
     content: contentItem.extractedText ?? "",
     structuredData: contentItem.structuredData ?? {},
     source: contentItem.source,
-  });
+  };
 
-  const result = await createStructuredResponse<DraftGenerationResult>({
-    model: process.env.OPENAI_MODEL_DRAFT || "gpt-4o-mini",
+  const result = await runStructuredTemplateCall<DraftGenerationResult>({
+    scenario: "DRAFT_GENERATION",
+    template,
+    variables,
     schemaName: "draft_generation_result",
     schema: getDraftSchema(),
-    instructions: template.systemPrompt,
-    input: renderedPrompt,
+    targetType: "contentItem",
+    targetId: contentItemId,
+    createdById,
   });
 
   const existingDraft = await db.draft.findFirst({
@@ -264,7 +201,7 @@ export async function generateDraftFromContent(contentItemId: string) {
     tags: result.tags,
     section: result.section,
     status: "EDITING" as const,
-    reviewNotes: `AI 生产生成于 ${new Date().toISOString()}`,
+    reviewNotes: `AI 草稿生成于 ${new Date().toISOString()}`,
   };
 
   if (existingDraft) {

@@ -27,6 +27,7 @@ type PromptRow = {
   id: string;
   name: string;
   type: PromptTypeKey;
+  version: number;
   description: string | null;
   systemPrompt: string;
   userPrompt: string;
@@ -233,7 +234,7 @@ export function PromptsManager({ items }: { items: PromptRow[] }) {
               <tr>
                 <th className="px-5 py-3">模板名称</th>
                 <th className="px-5 py-3">类型</th>
-                <th className="px-5 py-3">变量</th>
+                <th className="px-5 py-3">版本 / 变量</th>
                 <th className="px-5 py-3">状态</th>
                 <th className="px-5 py-3">操作</th>
               </tr>
@@ -246,7 +247,10 @@ export function PromptsManager({ items }: { items: PromptRow[] }) {
                     <p className="mt-1 text-xs text-slate-500">{item.description ?? "暂无说明"}</p>
                   </td>
                   <td className="px-5 py-4 text-slate-600">{promptTypeLabels[item.type]}</td>
-                  <td className="px-5 py-4 text-slate-600">{item.variables.join(", ") || "无"}</td>
+                  <td className="px-5 py-4 text-slate-600">
+                    <p>v{item.version}</p>
+                    <p className="mt-1 text-xs text-slate-500">{item.variables.join(", ") || "无变量"}</p>
+                  </td>
                   <td className="px-5 py-4"><Badge tone={item.isActive ? "success" : "neutral"}>{item.isActive ? "启用" : "停用"}</Badge></td>
                   <td className="px-5 py-4">
                     <div className="flex flex-wrap gap-2">

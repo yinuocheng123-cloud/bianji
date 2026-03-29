@@ -34,7 +34,7 @@ export async function crawlContentItem(contentItemId: string, mode: CrawlMode = 
   });
 }
 
-export async function extractContentItem(contentItemId: string) {
+export async function extractContentItem(contentItemId: string, createdById?: string | null) {
   const item = await db.contentItem.findUnique({ where: { id: contentItemId } });
   if (!item || !item.rawHtml) {
     throw new Error("内容不存在或缺少原始 HTML，无法抽取。");
@@ -52,11 +52,11 @@ export async function extractContentItem(contentItemId: string) {
     },
   });
 
-  return generateStructuredExtraction(contentItemId);
+  return generateStructuredExtraction(contentItemId, createdById);
 }
 
-export async function draftContentItem(contentItemId: string) {
-  const draft = await generateDraftFromContent(contentItemId);
+export async function draftContentItem(contentItemId: string, createdById?: string | null) {
+  const draft = await generateDraftFromContent(contentItemId, createdById);
 
   await db.contentItem.update({
     where: { id: contentItemId },

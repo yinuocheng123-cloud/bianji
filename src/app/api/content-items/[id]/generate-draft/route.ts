@@ -33,7 +33,7 @@ export async function POST(request: Request, context: RouteContext<"/api/content
 
     try {
       await updateTaskStatus(task.id, "RUNNING", { message: "开始执行即时草稿生成。" });
-      const draft = await draftContentItem(id);
+      const draft = await draftContentItem(id, auth.user.id);
       await updateTaskStatus(task.id, "SUCCESS", {
         message: "AI 草稿生成完成。",
         detailJson: { contentItemId: id, draftId: draft.id },

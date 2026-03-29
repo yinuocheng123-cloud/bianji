@@ -64,6 +64,22 @@ enum CompanyReviewIssueCategory {
   OTHER
 }
 
+enum AIProviderType {
+  OPENAI
+  DEEPSEEK
+}
+
+enum AICallScenario {
+  COMPANY_RESEARCH
+  STRUCTURED_EXTRACTION
+  DRAFT_GENERATION
+}
+
+enum AICallStatus {
+  SUCCESS
+  FAILED
+}
+
 enum TaskType {
   SEARCH
   CRAWL
@@ -149,6 +165,7 @@ model User {
   taskLogs       TaskLog[]
   createdRules   RuleDefinition[] @relation("RuleCreator")
   exceptionsResolved ExceptionEvent[] @relation("ExceptionResolver")
+  aiCallLogs     AICallLog[]
 }
 
 model Keyword {
@@ -282,9 +299,51 @@ model PromptTemplate {
   systemPrompt String
   userPrompt   String
   variables    String[]
+  version      Int         @default(1)
   isActive     Boolean     @default(true)
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
+}
+
+model AIProviderConfig {
+  id                   String         @id @default(cuid())
+  providerType         AIProviderType @unique
+  displayName          String
+  baseUrl              String?
+  structuredModel      String?
+  draftModel           String?
+  companyResearchModel String?
+  reasoningEffort      String?
+  isActive             Boolean        @default(true)
+  isDefault            Boolean        @default(false)
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  @@map("ai_provider_configs")
+}
+
+model AICallLog {
+  id                  String         @id @default(cuid())
+  providerType        AIProviderType
+  scenario            AICallScenario
+  status              AICallStatus
+  model               String
+  durationMs          Int
+  errorMessage        String?
+  targetType          String?
+  targetId            String?
+  inputTemplateId     String?
+  inputTemplateName   String?
+  inputTemplateVersion Int?
+  inputVariablesJson  Json?
+  outputPreview       String?
+  createdById         String?
+  createdAt           DateTime       @default(now())
+  createdBy           User?          @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([scenario, createdAt])
+  @@index([status, createdAt])
+  @@map("ai_call_logs")
 }
 
 model OperationLog {

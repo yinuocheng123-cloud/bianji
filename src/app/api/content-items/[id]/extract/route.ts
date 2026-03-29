@@ -33,7 +33,7 @@ export async function POST(request: Request, context: RouteContext<"/api/content
 
     try {
       await updateTaskStatus(task.id, "RUNNING", { message: "开始执行即时正文抽取。" });
-      const updated = await extractContentItem(id);
+      const updated = await extractContentItem(id, auth.user.id);
       await updateTaskStatus(task.id, "SUCCESS", {
         message: "正文抽取完成。",
         detailJson: { contentItemId: id },

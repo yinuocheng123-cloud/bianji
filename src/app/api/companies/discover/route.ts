@@ -41,6 +41,7 @@ export async function POST(request: Request) {
   const discovery = await discoverCompanyProfile({
     query,
     officialWebsiteHint: officialWebsiteHint || undefined,
+    createdById: auth.user.id,
   });
 
   const existingCompanyWhere = {

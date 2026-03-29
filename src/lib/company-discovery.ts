@@ -1,20 +1,18 @@
 /**
  * 文件说明：企业资料与官网候选自动检索服务。
- * 功能说明：负责从公开网络检索企业资料候选、官网候选，并尽量通过 AI
- *          把检索结果整理成待审核的企业资料与站点信息。
+ * 功能说明：负责从公开网络检索企业资料候选、官网候选，并优先走统一 AI Provider
+ *          做结构化研判；若真实 OpenAI 不可用，则自动回退到公开搜索兜底模式。
  *
  * 结构概览：
  *   第一部分：类型定义与基础工具
- *   第二部分：公开网络检索与候选页面抓取
- *   第三部分：AI 结构化整理与兜底提炼
- *   第四部分：对外检索入口
+ *   第二部分：公开网络搜索与候选网页抓取
+ *   第三部分：AI 结构化研判与兜底逻辑
+ *   第四部分：对外检索接口与证据整理
  */
 
 import { load } from "cheerio";
-import OpenAI from "openai";
 
-import { db } from "@/lib/db";
-import { renderPrompt } from "@/lib/ai";
+import { getActivePromptTemplate, runStructuredTemplateCall } from "@/lib/ai-provider";
 
 type SearchResult = {
   title: string;
@@ -63,10 +61,13 @@ export type CompanyDiscoveryResult = {
 type CompanyDiscoveryInput = {
   query: string;
   officialWebsiteHint?: string;
+  createdById?: string | null;
 };
 
 const DISCOVERY_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
+
+// ========== 第一部分：类型定义与基础工具 ==========
 
 function normalizeWhitespace(value: string) {
   return value.replace(/\s+/g, " ").trim();
@@ -94,6 +95,72 @@ function isLikelyOfficialWebsite(candidate: SearchResult) {
   const haystack = `${candidate.title} ${candidate.snippet}`.toLowerCase();
   return /(官网|官方网站|official|brand|企业简介|关于我们)/.test(haystack);
 }
+
+function getCompanyDiscoverySchema() {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      companyName: { type: "string" },
+      brandName: { type: "string" },
+      region: { type: "string" },
+      description: { type: "string" },
+      positioning: { type: "string" },
+      mainProducts: { type: "array", items: { type: "string" } },
+      advantages: { type: "array", items: { type: "string" } },
+      honors: { type: "array", items: { type: "string" } },
+      people: { type: "array", items: { type: "string" } },
+      officialWebsite: { type: "string" },
+      officialWebsiteCandidates: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            name: { type: "string" },
+            baseUrl: { type: "string" },
+            reason: { type: "string" },
+            sourceUrl: { type: "string" },
+          },
+          required: ["name", "baseUrl", "reason", "sourceUrl"],
+        },
+      },
+      sourceRecords: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            sourceUrl: { type: "string" },
+            sourceTitle: { type: "string" },
+            note: { type: "string" },
+          },
+          required: ["sourceUrl", "sourceTitle", "note"],
+        },
+      },
+      summary: { type: "string" },
+      confidence: { type: "string", enum: ["high", "medium", "low"] },
+    },
+    required: [
+      "companyName",
+      "brandName",
+      "region",
+      "description",
+      "positioning",
+      "mainProducts",
+      "advantages",
+      "honors",
+      "people",
+      "officialWebsite",
+      "officialWebsiteCandidates",
+      "sourceRecords",
+      "summary",
+      "confidence",
+    ],
+  };
+}
+
+// ========== 第二部分：公开网络搜索与候选网页抓取 ==========
 
 async function searchDuckDuckGo(query: string) {
   const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
@@ -212,6 +279,8 @@ async function fetchCandidatePage(result: SearchResult) {
   }
 }
 
+// ========== 第三部分：AI 结构化研判与兜底逻辑 ==========
+
 function fallbackResearchResult(input: CompanyDiscoveryInput, pages: PageCandidate[]): CompanyDiscoveryResult {
   const firstPage = pages[0];
   const websiteCandidates = pages
@@ -219,7 +288,7 @@ function fallbackResearchResult(input: CompanyDiscoveryInput, pages: PageCandida
     .map((page) => ({
       name: page.pageTitle || page.title || input.query,
       baseUrl: normalizeWebsite(page.url),
-      reason: page.snippet || page.description || "命中官网或企业介绍相关搜索结果",
+      reason: page.snippet || page.description || "命中官网或企业介绍相关搜索结果。",
       sourceUrl: page.url,
     }))
     .filter((item) => item.baseUrl)
@@ -240,7 +309,7 @@ function fallbackResearchResult(input: CompanyDiscoveryInput, pages: PageCandida
     companyName: input.query,
     brandName: input.query,
     region: "",
-    description: firstPage?.description || firstPage?.snippet || "已从公开网络检索到企业相关资料，待人工核实。",
+    description: firstPage?.description || firstPage?.snippet || "已从公开网络搜索到企业相关资料，待人工核实。",
     positioning: firstPage?.snippet || "待人工补充定位信息。",
     mainProducts: [],
     advantages: [],
@@ -251,7 +320,7 @@ function fallbackResearchResult(input: CompanyDiscoveryInput, pages: PageCandida
     sourceRecords: pages.map((page) => ({
       sourceUrl: page.url,
       sourceTitle: page.pageTitle || page.title || input.query,
-      note: page.snippet || page.description || "公开网络检索结果，待人工核实。",
+      note: page.snippet || page.description || "公开网络搜索结果，待人工核实。",
     })),
     summary: "当前环境未接入真实 AI，已用公开搜索结果整理候选资料并提交待审核。",
     confidence: websiteCandidates.length > 0 ? "medium" : "low",
@@ -259,124 +328,27 @@ function fallbackResearchResult(input: CompanyDiscoveryInput, pages: PageCandida
   };
 }
 
-function getCompanyDiscoverySchema() {
-  return {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      companyName: { type: "string" },
-      brandName: { type: "string" },
-      region: { type: "string" },
-      description: { type: "string" },
-      positioning: { type: "string" },
-      mainProducts: { type: "array", items: { type: "string" } },
-      advantages: { type: "array", items: { type: "string" } },
-      honors: { type: "array", items: { type: "string" } },
-      people: { type: "array", items: { type: "string" } },
-      officialWebsite: { type: "string" },
-      officialWebsiteCandidates: {
-        type: "array",
-        items: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            name: { type: "string" },
-            baseUrl: { type: "string" },
-            reason: { type: "string" },
-            sourceUrl: { type: "string" },
-          },
-          required: ["name", "baseUrl", "reason", "sourceUrl"],
-        },
-      },
-      sourceRecords: {
-        type: "array",
-        items: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            sourceUrl: { type: "string" },
-            sourceTitle: { type: "string" },
-            note: { type: "string" },
-          },
-          required: ["sourceUrl", "sourceTitle", "note"],
-        },
-      },
-      summary: { type: "string" },
-      confidence: { type: "string", enum: ["high", "medium", "low"] },
-    },
-    required: [
-      "companyName",
-      "brandName",
-      "region",
-      "description",
-      "positioning",
-      "mainProducts",
-      "advantages",
-      "honors",
-      "people",
-      "officialWebsite",
-      "officialWebsiteCandidates",
-      "sourceRecords",
-      "summary",
-      "confidence",
-    ],
-  };
-}
-
-async function getActiveCompanyResearchTemplate() {
-  return db.promptTemplate.findFirst({
-    where: {
-      type: "COMPANY_RESEARCH",
-      isActive: true,
-    },
-    orderBy: { updatedAt: "desc" },
-  });
-}
-
 async function runAiResearch(input: CompanyDiscoveryInput, pages: PageCandidate[]) {
-  if (!process.env.OPENAI_API_KEY) {
-    return null;
-  }
-
-  const template = await getActiveCompanyResearchTemplate();
-  if (!template) {
-    return null;
-  }
-
-  const client = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-    baseURL: process.env.OPENAI_BASE_URL || undefined,
-  });
-
-  const renderedPrompt = renderPrompt(template.userPrompt, {
-    companyName: input.query,
-    officialWebsiteHint: input.officialWebsiteHint ?? "",
-    pages,
-  });
-
-  const response = await client.responses.create({
-    model: process.env.OPENAI_MODEL_COMPANY_RESEARCH || process.env.OPENAI_MODEL_STRUCTURED || "gpt-4o-mini",
-    instructions: template.systemPrompt,
-    input: renderedPrompt,
-    text: {
-      format: {
-        type: "json_schema",
-        name: "company_research_result",
-        strict: true,
-        schema: getCompanyDiscoverySchema(),
-      },
+  const template = await getActivePromptTemplate("COMPANY_RESEARCH");
+  const result = await runStructuredTemplateCall<Omit<CompanyDiscoveryResult, "mode">>({
+    scenario: "COMPANY_RESEARCH",
+    template,
+    variables: {
+      companyName: input.query,
+      officialWebsiteHint: input.officialWebsiteHint ?? "",
+      pages,
     },
+    schemaName: "company_research_result",
+    schema: getCompanyDiscoverySchema(),
+    targetType: "companyProfile",
+    targetId: null,
+    createdById: input.createdById ?? null,
   });
 
-  if (!response.output_text) {
-    throw new Error("AI 未返回企业资料检索结果。");
-  }
-
-  const parsed = JSON.parse(response.output_text) as Omit<CompanyDiscoveryResult, "mode">;
   return {
-    ...parsed,
-    officialWebsite: normalizeWebsite(parsed.officialWebsite),
-    officialWebsiteCandidates: parsed.officialWebsiteCandidates
+    ...result,
+    officialWebsite: normalizeWebsite(result.officialWebsite),
+    officialWebsiteCandidates: result.officialWebsiteCandidates
       .map((item) => ({
         ...item,
         baseUrl: normalizeWebsite(item.baseUrl),
@@ -386,13 +358,17 @@ async function runAiResearch(input: CompanyDiscoveryInput, pages: PageCandidate[
   };
 }
 
+// ========== 第四部分：对外检索接口与证据整理 ==========
+
 export async function discoverCompanyProfile(input: CompanyDiscoveryInput): Promise<CompanyDiscoveryResult> {
   const queries = Array.from(
-    new Set([
-      `${input.query} 官网`,
-      `${input.query} 企业介绍`,
-      input.officialWebsiteHint ? `${input.query} ${input.officialWebsiteHint}` : "",
-    ].filter(Boolean)),
+    new Set(
+      [
+        `${input.query} 官网`,
+        `${input.query} 企业介绍`,
+        input.officialWebsiteHint ? `${input.query} ${input.officialWebsiteHint}` : "",
+      ].filter(Boolean),
+    ),
   );
 
   const searchResults = (
@@ -430,12 +406,11 @@ export async function discoverCompanyProfile(input: CompanyDiscoveryInput): Prom
     (item): item is PageCandidate => Boolean(item),
   );
 
-  const aiResult = await runAiResearch(input, pages);
-  if (aiResult) {
-    return aiResult;
+  try {
+    return await runAiResearch(input, pages);
+  } catch {
+    return fallbackResearchResult(input, pages);
   }
-
-  return fallbackResearchResult(input, pages);
 }
 
 export function getDiscoveryEvidence(

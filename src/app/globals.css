@@ -3,8 +3,11 @@
 :root {
   --background: #f3f5f2;
   --foreground: #102118;
-  --font-sans: var(--font-ui);
-  --font-serif: var(--font-display);
+  --font-sans:
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Source Han Sans SC",
+    "Helvetica Neue", Arial, sans-serif;
+  --font-serif:
+    "Source Han Serif SC", "Songti SC", "STSong", "Noto Serif CJK SC", Georgia, "Times New Roman", serif;
 }
 
 html {
@@ -13,6 +16,7 @@ html {
 
 body {
   color: var(--foreground);
+  font-family: var(--font-sans);
 }
 
 .ProseMirror p {
@@ -29,4 +33,3 @@ body {
   list-style: disc;
   padding-left: 1.5rem;
 }
-

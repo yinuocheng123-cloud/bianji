@@ -26,6 +26,9 @@ export async function PATCH(request: Request, context: RouteContext<"/api/prompt
       systemPrompt: body.systemPrompt,
       userPrompt: body.userPrompt,
       variables: Array.isArray(body.variables) ? body.variables : undefined,
+      version: {
+        increment: 1,
+      },
       isActive: body.isActive,
     },
   });

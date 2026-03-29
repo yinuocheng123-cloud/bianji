@@ -33,6 +33,7 @@ yarn-error.log*
 *.err.log
 memurai-log.txt
 custom/runtime/
+custom/runtime-logs/
 dump.rdb
 
 # env files (can opt-in for committing if needed)

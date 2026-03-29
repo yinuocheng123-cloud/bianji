@@ -9,6 +9,8 @@
  */
 
 import type {
+  AICallScenario,
+  AIProviderType,
   CompanyReviewIssueCategory,
   DraftStatus,
   PromptType,
@@ -88,6 +90,17 @@ export const companyReviewIssueCategoryLabels: Record<CompanyReviewIssueCategory
   MISSING_FIELDS: "关键字段缺失",
   CONFLICT_IDENTIFICATION: "识别冲突",
   OTHER: "其他原因",
+};
+
+export const aiProviderLabels: Record<AIProviderType, string> = {
+  OPENAI: "OpenAI",
+  DEEPSEEK: "DeepSeek",
+};
+
+export const aiScenarioLabels: Record<AICallScenario, string> = {
+  COMPANY_RESEARCH: "企业资料检索",
+  STRUCTURED_EXTRACTION: "结构化抽取",
+  DRAFT_GENERATION: "草稿生成",
 };
 
 export const contentStatusFlow: WorkflowStatus[] = [
@@ -174,6 +187,13 @@ export const dashboardNav = [
     primary: false,
   },
   {
+    href: "/settings/ai",
+    label: "AI 提供商配置",
+    icon: Bot,
+    roles: ["ADMIN"] satisfies UserRole[],
+    primary: false,
+  },
+  {
     href: "/settings/prompts",
     label: "提示词模板",
     icon: Settings2,
@@ -197,6 +217,7 @@ export const moduleDescriptions = {
   review: "处理待审核和退回修订稿件，是人工把关内容质量的主入口。",
   companies: "沉淀企业、品牌、产品与人物资料，形成可复用资料库。",
   logs: "保留关键操作日志，便于追踪责任和审计过程。",
+  aiSettings: "统一管理 OpenAI、DeepSeek 等模型提供商，配置默认链路、模型、Base URL 与最近调用日志。",
   prompts: "配置 AI 提示词模板，避免业务逻辑写死在代码中。",
 };
 

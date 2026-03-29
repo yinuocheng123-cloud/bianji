@@ -1,21 +1,39 @@
+/**
+ * 文件说明：项目本地演示数据初始化脚本。
+ * 功能说明：为整木网 AI 编辑部系统写入用户、关键词、内容、草稿、企业资料、
+ *          规则、任务、异常、AI Provider 配置与 AI 调用日志等演示数据。
+ *
+ * 结构概览：
+ *   第一部分：依赖导入与基础用户
+ *   第二部分：内容、草稿与企业资料演示数据
+ *   第三部分：提示词模板、AI Provider 与调用日志
+ *   第四部分：规则、任务、异常与系统日志
+ */
+
 import bcrypt from "bcryptjs";
 import {
-  PrismaClient,
-  UserRole,
-  WorkflowStatus,
+  AICallScenario,
+  AICallStatus,
+  AIProviderType,
   DraftStatus,
-  PromptType,
-  ReviewStatus,
-  TaskType,
-  TaskStatus,
-  TaskTriggerType,
-  ExceptionType,
   ExceptionSeverity,
   ExceptionStatus,
+  ExceptionType,
+  PrismaClient,
+  PromptType,
+  ReviewDecision,
+  ReviewStatus,
   RuleType,
+  TaskStatus,
+  TaskTriggerType,
+  TaskType,
+  UserRole,
+  WorkflowStatus,
 } from "@prisma/client";
 
 const prisma = new PrismaClient();
+
+// ========== 第一部分：依赖导入与基础用户 ==========
 
 async function main() {
   const passwordHash = await bcrypt.hash("Admin123!", 10);
@@ -53,62 +71,110 @@ async function main() {
     }),
   ]);
 
-  const keywords = await Promise.all([
+  const [keywordA, keywordB] = await Promise.all([
     prisma.keyword.upsert({
       where: { term: "整木定制" },
       update: {},
-      create: { term: "整木定制", category: "行业热词", description: "行业基础核心词" },
+      create: {
+        term: "整木定制",
+        category: "行业热词",
+        description: "整木行业核心监控词。",
+      },
     }),
     prisma.keyword.upsert({
-      where: { term: "高定家居" },
+      where: { term: "高定木作" },
       update: {},
-      create: { term: "高定家居", category: "品牌趋势", description: "高端定制家居内容" },
+      create: {
+        term: "高定木作",
+        category: "品牌趋势",
+        description: "高端木作与高定家居相关内容。",
+      },
     }),
   ]);
 
   const site = await prisma.site.upsert({
     where: { baseUrl: "https://example.com" },
-    update: {},
+    update: {
+      name: "示例资讯站",
+      description: "用于本地演示的公开站点。",
+      crawlFrequency: "daily",
+      reviewStatus: ReviewStatus.APPROVED,
+      isActive: true,
+    },
     create: {
       name: "示例资讯站",
       baseUrl: "https://example.com",
-      description: "用于 MVP 演示的公开站点",
+      description: "用于本地演示的公开站点。",
       crawlFrequency: "daily",
       reviewStatus: ReviewStatus.APPROVED,
+      isActive: true,
     },
   });
 
+  // ========== 第二部分：内容、草稿与企业资料演示数据 ==========
+
   const content = await prisma.contentItem.upsert({
     where: { originalUrl: "https://example.com/industry/solid-wood-trend" },
-    update: {},
+    update: {
+      title: "2026 整木定制趋势观察",
+      source: "示例资讯站",
+      publishedAt: new Date("2026-03-19T10:00:00.000Z"),
+      fetchedAt: new Date("2026-03-19T11:00:00.000Z"),
+      contentTypeSuggestion: "行业趋势稿",
+      status: WorkflowStatus.TO_EDIT,
+      rawHtml: "<article><h1>2026 整木定制趋势观察</h1><p>示例正文。</p></article>",
+      extractedTitle: "2026 整木定制趋势观察",
+      extractedText: "示例正文，包含整木定制、高定木作、品牌升级和终端体验等信息。",
+      extractedSummary: "围绕整木行业趋势、品牌升级与消费变化的观察。",
+      structuredData: {
+        companies: ["示例整木"],
+        topics: ["趋势", "高定木作"],
+        regions: ["华东"],
+      },
+      ownerId: editor.id,
+      siteId: site.id,
+    },
     create: {
       title: "2026 整木定制趋势观察",
       source: "示例资讯站",
       originalUrl: "https://example.com/industry/solid-wood-trend",
       publishedAt: new Date("2026-03-19T10:00:00.000Z"),
-      fetchedAt: new Date(),
+      fetchedAt: new Date("2026-03-19T11:00:00.000Z"),
       contentTypeSuggestion: "行业趋势稿",
       status: WorkflowStatus.TO_EDIT,
       rawHtml: "<article><h1>2026 整木定制趋势观察</h1><p>示例正文。</p></article>",
       extractedTitle: "2026 整木定制趋势观察",
-      extractedText: "示例正文，包含整木定制、高定家居、品牌升级等信息。",
+      extractedText: "示例正文，包含整木定制、高定木作、品牌升级和终端体验等信息。",
       extractedSummary: "围绕整木行业趋势、品牌升级与消费变化的观察。",
       structuredData: {
-        companies: ["示例品牌"],
-        topics: ["趋势", "高定家居"],
+        companies: ["示例整木"],
+        topics: ["趋势", "高定木作"],
         regions: ["华东"],
       },
       ownerId: editor.id,
       siteId: site.id,
       keywords: {
-        connect: keywords.map((keyword) => ({ id: keyword.id })),
+        connect: [{ id: keywordA.id }, { id: keywordB.id }],
       },
     },
   });
 
   await prisma.draft.upsert({
     where: { id: "seed-draft-001" },
-    update: {},
+    update: {
+      title: "整木定制迈入内容升级周期",
+      introduction: "从品牌表达、渠道触点到终端体验，整木行业内容运营正在重构。",
+      body: "<p>示例正文：整木行业正从产品介绍转向结构化内容运营。</p>",
+      summary: "整木行业内容运营从单点宣传转向系统化运营。",
+      seoTitle: "整木定制内容运营趋势分析",
+      seoDescription: "聚焦整木网 AI 编辑部的演示草稿内容。",
+      geoSummary: "适合在 AI 搜索与问答场景引用的整木行业简述。",
+      tags: ["整木定制", "高定木作"],
+      section: "行业观察",
+      status: DraftStatus.EDITING,
+      editorId: editor.id,
+      reviewerId: reviewer.id,
+    },
     create: {
       id: "seed-draft-001",
       contentItemId: content.id,
@@ -117,9 +183,9 @@ async function main() {
       body: "<p>示例正文：整木行业正从产品介绍转向结构化内容运营。</p>",
       summary: "整木行业内容运营从单点宣传转向系统化运营。",
       seoTitle: "整木定制内容运营趋势分析",
-      seoDescription: "聚焦整木网 AI 编辑部 MVP 的示例草稿内容。",
+      seoDescription: "聚焦整木网 AI 编辑部的演示草稿内容。",
       geoSummary: "适合在 AI 搜索与问答场景引用的整木行业简述。",
-      tags: ["整木定制", "高定家居"],
+      tags: ["整木定制", "高定木作"],
       section: "行业观察",
       status: DraftStatus.EDITING,
       editorId: editor.id,
@@ -129,7 +195,21 @@ async function main() {
 
   await prisma.draft.upsert({
     where: { id: "seed-draft-002" },
-    update: {},
+    update: {
+      title: "整木企业资料稿需要补齐来源与荣誉依据",
+      introduction: "这是一条用于反馈中心演示的资料整理稿。",
+      body: "<p>示例正文：用于演示审核通过、驳回与人工修订反馈。</p>",
+      summary: "用于反馈中心的审核样本。",
+      seoTitle: "整木企业资料整理示例",
+      seoDescription: "反馈中心统计用演示草稿。",
+      geoSummary: "整木资料稿反馈样本。",
+      tags: ["企业资料", "反馈样本"],
+      section: "企业资料",
+      status: DraftStatus.REJECTED,
+      editorId: editor.id,
+      reviewerId: reviewer.id,
+      reviewNotes: "来源链接和荣誉依据不足，需要补齐。",
+    },
     create: {
       id: "seed-draft-002",
       contentItemId: content.id,
@@ -150,9 +230,7 @@ async function main() {
   });
 
   await prisma.reviewAction.deleteMany({
-    where: {
-      draftId: { in: ["seed-draft-001", "seed-draft-002"] },
-    },
+    where: { draftId: { in: ["seed-draft-001", "seed-draft-002"] } },
   });
 
   await prisma.reviewAction.createMany({
@@ -160,21 +238,21 @@ async function main() {
       {
         draftId: "seed-draft-001",
         reviewerId: reviewer.id,
-        decision: "APPROVED",
+        decision: ReviewDecision.APPROVED,
         comment: "结构清晰，可继续进入发布前检查。",
         createdAt: new Date("2026-03-20T09:00:00.000Z"),
       },
       {
         draftId: "seed-draft-002",
         reviewerId: reviewer.id,
-        decision: "REJECTED",
+        decision: ReviewDecision.REJECTED,
         comment: "来源依据不足，需要补齐荣誉和发布时间。",
         createdAt: new Date("2026-03-21T11:00:00.000Z"),
       },
       {
         draftId: "seed-draft-002",
         reviewerId: reviewer.id,
-        decision: "NEEDS_REVISION",
+        decision: ReviewDecision.NEEDS_REVISION,
         comment: "企业定位表述偏空，需要补一段更具体的主营说明。",
         createdAt: new Date("2026-03-22T15:30:00.000Z"),
       },
@@ -183,14 +261,28 @@ async function main() {
 
   await prisma.companyProfile.upsert({
     where: { id: "seed-company-001" },
-    update: {},
+    update: {
+      companyName: "示例整木科技有限公司",
+      brandName: "示例整木",
+      region: "浙江",
+      description: "聚焦高端整木定制的一体化品牌。",
+      positioning: "高端住宅空间整木解决方案提供商。",
+      officialWebsite: "https://www.example.com",
+      reviewStatus: ReviewStatus.APPROVED,
+      reviewNotes: "人工维护资料，已通过。",
+      submissionSource: "MANUAL",
+      mainProducts: ["整木定制", "木门", "护墙板"],
+      advantages: ["交付标准化", "高端案例沉淀"],
+      honors: ["示例行业奖项"],
+      people: [{ name: "张总", role: "品牌负责人" }],
+    },
     create: {
       id: "seed-company-001",
       companyName: "示例整木科技有限公司",
       brandName: "示例整木",
       region: "浙江",
       description: "聚焦高端整木定制的一体化品牌。",
-      positioning: "高端住宅空间整木解决方案提供商",
+      positioning: "高端住宅空间整木解决方案提供商。",
       officialWebsite: "https://www.example.com",
       reviewStatus: ReviewStatus.APPROVED,
       reviewNotes: "人工维护资料，已通过。",
@@ -204,7 +296,7 @@ async function main() {
           {
             sourceUrl: content.originalUrl,
             sourceTitle: content.title,
-            note: "来自首轮内容池示例数据",
+            note: "来自首轮内容池示例数据。",
           },
         ],
       },
@@ -214,10 +306,19 @@ async function main() {
   await prisma.companyProfile.upsert({
     where: { id: "seed-company-002" },
     update: {
+      companyName: "待审核整木品牌有限公司",
+      brandName: "待审核整木",
+      region: "广东",
+      description: "来自公开网络检索的企业资料候选。",
+      positioning: "整木定制与木门墙柜一体化方案候选资料。",
+      officialWebsite: "https://pending-example.com",
       reviewStatus: ReviewStatus.PENDING,
       reviewNotes: "AI 自动检索提交待审核，请确认官网与主营产品。",
       submissionSource: "AI_DISCOVERY",
-      officialWebsite: "https://pending-example.com",
+      mainProducts: ["整木定制", "护墙板", "木门墙柜一体化"],
+      advantages: ["资料来源较多", "官网候选已识别"],
+      honors: ["待人工确认"],
+      people: ["品牌负责人待确认"],
     },
     create: {
       id: "seed-company-002",
@@ -254,10 +355,19 @@ async function main() {
   await prisma.companyProfile.upsert({
     where: { id: "seed-company-003" },
     update: {
+      companyName: "已通过整木资料样本有限公司",
+      brandName: "通过样本整木",
+      region: "上海",
+      description: "用于学习反馈中心展示 AI 企业资料已通过样本。",
+      positioning: "高端整木空间解决方案品牌。",
+      officialWebsite: "https://approved-example.com",
       reviewStatus: ReviewStatus.APPROVED,
       reviewNotes: "企业官网和主营产品已核实，允许进入正式资料库。",
       submissionSource: "AI_DISCOVERY",
-      officialWebsite: "https://approved-example.com",
+      mainProducts: ["整木定制", "柜体系统"],
+      advantages: ["信息完整", "来源清晰"],
+      honors: ["待补更多荣誉"],
+      people: ["品牌负责人已识别"],
     },
     create: {
       id: "seed-company-003",
@@ -280,11 +390,20 @@ async function main() {
   await prisma.companyProfile.upsert({
     where: { id: "seed-company-004" },
     update: {
+      companyName: "已驳回整木资料样本有限公司",
+      brandName: "驳回样本整木",
+      region: "江苏",
+      description: "用于学习反馈中心展示 AI 企业资料已驳回样本。",
+      positioning: "待确认",
+      officialWebsite: null,
       reviewStatus: ReviewStatus.REJECTED,
       reviewIssueCategory: "SOURCE_INSUFFICIENT",
       reviewNotes: "来源不足且官网证据不清，需要重新检索。",
       submissionSource: "SEARCH_DISCOVERY",
-      officialWebsite: null,
+      mainProducts: ["待确认"],
+      advantages: [],
+      honors: [],
+      people: [],
     },
     create: {
       id: "seed-company-004",
@@ -308,20 +427,6 @@ async function main() {
   await prisma.site.upsert({
     where: { baseUrl: "https://pending-example.com" },
     update: {
-      reviewStatus: ReviewStatus.PENDING,
-      reviewNotes: "AI 自动检索到官网候选，待编辑或管理员确认。",
-      companyProfileId: "seed-company-002",
-      discoveryQuery: "待审核整木品牌",
-      isActive: false,
-      reviewEvidence: {
-        query: "待审核整木品牌",
-        sourceUrl: "https://pending-example.com/about",
-        reason: "搜索结果命中官网介绍页。",
-        mode: "ai",
-      },
-    },
-    create: {
-      baseUrl: "https://pending-example.com",
       name: "待审核整木品牌官网候选",
       description: "AI 自动检索到的官网候选。",
       isActive: false,
@@ -336,7 +441,25 @@ async function main() {
         mode: "ai",
       },
     },
+    create: {
+      name: "待审核整木品牌官网候选",
+      baseUrl: "https://pending-example.com",
+      description: "AI 自动检索到的官网候选。",
+      isActive: false,
+      reviewStatus: ReviewStatus.PENDING,
+      reviewNotes: "AI 自动检索到官网候选，待编辑或管理员确认。",
+      companyProfileId: "seed-company-002",
+      discoveryQuery: "待审核整木品牌",
+      reviewEvidence: {
+        query: "待审核整木品牌",
+        sourceUrl: "https://pending-example.com/about",
+        reason: "搜索结果命中官网介绍页。",
+        mode: "ai",
+      },
+    },
   });
+
+  // ========== 第三部分：提示词模板、AI Provider 与调用日志 ==========
 
   const templates = [
     {
@@ -369,12 +492,197 @@ async function main() {
   ];
 
   for (const template of templates) {
-    await prisma.promptTemplate.upsert({
+    const existingTemplate = await prisma.promptTemplate.findUnique({
       where: { name: template.name },
-      update: {},
-      create: template,
+    });
+
+    if (existingTemplate) {
+      await prisma.promptTemplate.update({
+        where: { id: existingTemplate.id },
+        data: {
+          description: template.description,
+          systemPrompt: template.systemPrompt,
+          userPrompt: template.userPrompt,
+          variables: template.variables,
+        },
+      });
+      continue;
+    }
+
+    await prisma.promptTemplate.create({
+      data: {
+        ...template,
+        version: 1,
+      },
     });
   }
+
+  await prisma.aIProviderConfig.upsert({
+    where: { providerType: AIProviderType.OPENAI },
+    update: {
+      displayName: "OpenAI",
+      baseUrl: process.env.OPENAI_BASE_URL || null,
+      structuredModel: process.env.OPENAI_MODEL_STRUCTURED || "gpt-4o-mini",
+      draftModel: process.env.OPENAI_MODEL_DRAFT || "gpt-4o-mini",
+      companyResearchModel:
+        process.env.OPENAI_MODEL_COMPANY_RESEARCH || process.env.OPENAI_MODEL_STRUCTURED || "gpt-4o-mini",
+      reasoningEffort: process.env.OPENAI_REASONING_EFFORT || "medium",
+      isActive: true,
+      isDefault: true,
+    },
+    create: {
+      providerType: AIProviderType.OPENAI,
+      displayName: "OpenAI",
+      baseUrl: process.env.OPENAI_BASE_URL || null,
+      structuredModel: process.env.OPENAI_MODEL_STRUCTURED || "gpt-4o-mini",
+      draftModel: process.env.OPENAI_MODEL_DRAFT || "gpt-4o-mini",
+      companyResearchModel:
+        process.env.OPENAI_MODEL_COMPANY_RESEARCH || process.env.OPENAI_MODEL_STRUCTURED || "gpt-4o-mini",
+      reasoningEffort: process.env.OPENAI_REASONING_EFFORT || "medium",
+      isActive: true,
+      isDefault: true,
+    },
+  });
+
+  await prisma.aIProviderConfig.upsert({
+    where: { providerType: AIProviderType.DEEPSEEK },
+    update: {
+      displayName: "DeepSeek",
+      baseUrl: process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com",
+      structuredModel: process.env.DEEPSEEK_MODEL_STRUCTURED || "deepseek-chat",
+      draftModel: process.env.DEEPSEEK_MODEL_DRAFT || "deepseek-chat",
+      companyResearchModel:
+        process.env.DEEPSEEK_MODEL_COMPANY_RESEARCH || process.env.DEEPSEEK_MODEL_STRUCTURED || "deepseek-chat",
+      reasoningEffort: process.env.DEEPSEEK_REASONING_EFFORT || null,
+      isActive: false,
+      isDefault: false,
+    },
+    create: {
+      providerType: AIProviderType.DEEPSEEK,
+      displayName: "DeepSeek",
+      baseUrl: process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com",
+      structuredModel: process.env.DEEPSEEK_MODEL_STRUCTURED || "deepseek-chat",
+      draftModel: process.env.DEEPSEEK_MODEL_DRAFT || "deepseek-chat",
+      companyResearchModel:
+        process.env.DEEPSEEK_MODEL_COMPANY_RESEARCH || process.env.DEEPSEEK_MODEL_STRUCTURED || "deepseek-chat",
+      reasoningEffort: process.env.DEEPSEEK_REASONING_EFFORT || null,
+      isActive: false,
+      isDefault: false,
+    },
+  });
+
+  const structuredTemplate = await prisma.promptTemplate.findFirst({
+    where: { type: PromptType.STRUCTURED_EXTRACTION },
+    orderBy: { updatedAt: "desc" },
+  });
+  const draftTemplate = await prisma.promptTemplate.findFirst({
+    where: { type: PromptType.DRAFT_GENERATION },
+    orderBy: { updatedAt: "desc" },
+  });
+  const companyTemplate = await prisma.promptTemplate.findFirst({
+    where: { type: PromptType.COMPANY_RESEARCH },
+    orderBy: { updatedAt: "desc" },
+  });
+
+  const aiCallSeeds = [
+    {
+      id: "seed-ai-call-001",
+      providerType: AIProviderType.OPENAI,
+      scenario: AICallScenario.STRUCTURED_EXTRACTION,
+      status: AICallStatus.SUCCESS,
+      model: process.env.OPENAI_MODEL_STRUCTURED || "gpt-4o-mini",
+      durationMs: 1320,
+      targetType: "contentItem",
+      targetId: content.id,
+      inputTemplateId: structuredTemplate?.id ?? null,
+      inputTemplateName: structuredTemplate?.name ?? "默认结构化抽取模板",
+      inputTemplateVersion: structuredTemplate?.version ?? 1,
+      inputVariablesJson: { title: content.title, source: content.source },
+      outputPreview: "已抽取出企业、人物、产品与地域等结构化字段。",
+      createdById: admin.id,
+      createdAt: new Date("2026-03-24T09:30:00.000Z"),
+      errorMessage: null,
+    },
+    {
+      id: "seed-ai-call-002",
+      providerType: AIProviderType.OPENAI,
+      scenario: AICallScenario.DRAFT_GENERATION,
+      status: AICallStatus.SUCCESS,
+      model: process.env.OPENAI_MODEL_DRAFT || "gpt-4o-mini",
+      durationMs: 1840,
+      targetType: "contentItem",
+      targetId: content.id,
+      inputTemplateId: draftTemplate?.id ?? null,
+      inputTemplateName: draftTemplate?.name ?? "默认草稿生成模板",
+      inputTemplateVersion: draftTemplate?.version ?? 1,
+      inputVariablesJson: { title: content.title, source: content.source },
+      outputPreview: "已生成包含标题、导语、正文和 SEO/GEO 字段的草稿。",
+      createdById: editor.id,
+      createdAt: new Date("2026-03-24T10:10:00.000Z"),
+      errorMessage: null,
+    },
+    {
+      id: "seed-ai-call-003",
+      providerType: AIProviderType.OPENAI,
+      scenario: AICallScenario.COMPANY_RESEARCH,
+      status: AICallStatus.FAILED,
+      model: process.env.OPENAI_MODEL_COMPANY_RESEARCH || process.env.OPENAI_MODEL_STRUCTURED || "gpt-4o-mini",
+      durationMs: 910,
+      targetType: "companyProfile",
+      targetId: "seed-company-002",
+      inputTemplateId: companyTemplate?.id ?? null,
+      inputTemplateName: companyTemplate?.name ?? "默认企业资料检索模板",
+      inputTemplateVersion: companyTemplate?.version ?? 1,
+      inputVariablesJson: { query: "待审核整木品牌" },
+      outputPreview: null,
+      createdById: admin.id,
+      createdAt: new Date("2026-03-24T11:20:00.000Z"),
+      errorMessage: "当前环境未配置 OPENAI_API_KEY，已回退到检索兜底模式。",
+    },
+  ];
+
+  for (const call of aiCallSeeds) {
+    await prisma.aICallLog.upsert({
+      where: { id: call.id },
+      update: {
+        providerType: call.providerType ?? AIProviderType.OPENAI,
+        scenario: call.scenario,
+        status: call.status,
+        model: call.model,
+        durationMs: call.durationMs,
+        errorMessage: call.errorMessage,
+        targetType: call.targetType,
+        targetId: call.targetId,
+        inputTemplateId: call.inputTemplateId,
+        inputTemplateName: call.inputTemplateName,
+        inputTemplateVersion: call.inputTemplateVersion,
+        inputVariablesJson: call.inputVariablesJson,
+        outputPreview: call.outputPreview,
+        createdById: call.createdById,
+        createdAt: call.createdAt,
+      },
+      create: {
+        id: call.id,
+        providerType: call.providerType ?? AIProviderType.OPENAI,
+        scenario: call.scenario,
+        status: call.status,
+        model: call.model,
+        durationMs: call.durationMs,
+        errorMessage: call.errorMessage,
+        targetType: call.targetType,
+        targetId: call.targetId,
+        inputTemplateId: call.inputTemplateId,
+        inputTemplateName: call.inputTemplateName,
+        inputTemplateVersion: call.inputTemplateVersion,
+        inputVariablesJson: call.inputVariablesJson,
+        outputPreview: call.outputPreview,
+        createdById: call.createdById,
+        createdAt: call.createdAt,
+      },
+    });
+  }
+
+  // ========== 第四部分：规则、任务、异常与系统日志 ==========
 
   const seedRules = [
     {
@@ -548,7 +856,7 @@ async function main() {
       targetType: "seed",
       targetId: "initial",
       userId: admin.id,
-      detail: { message: "初始化首轮 MVP 演示数据" },
+      detail: { message: "初始化整木网 AI 编辑部演示数据。" },
     },
   });
 }
